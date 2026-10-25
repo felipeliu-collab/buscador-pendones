@@ -130,3 +130,7 @@ python app.py --ask-ticket --open-browser
 Si ya tienes el repositorio, actualízalo con `git pull` dentro de su carpeta en lugar de clonarlo otra vez. El programa pide tu ticket de ChileCompra con entrada oculta, lo conserva solo en memoria y abre automáticamente la vista compatible en el navegador **de tu equipo**. No lo escribas en el comando, en GitHub ni en el chat. Mantén la terminal abierta mientras utilices el buscador. Tu PC debe tener acceso directo autorizado a `api2.mercadopublico.cl`; la configuración secreta de Codex no se transfiere automáticamente al PC.
 
 Si necesitas un sitio accesible permanentemente desde cualquier equipo, el siguiente paso es desplegar Python con almacenamiento persistente, HTTPS y la credencial segura en el hosting elegido. El repositorio preparado no equivale a un despliegue ya publicado. No se ha creado un túnel público ni una URL de vista previa desde esta sesión.
+
+### Si PowerShell no permite pegar el ticket
+
+Actualiza el repositorio con `git pull` y ejecuta `python app.py --ticket-window --open-browser`. Se abre una ventana nativa con campo oculto, botón **Pegar ticket** y botón **Iniciar buscador**. Usa Tcl/Tk, incluido normalmente en el instalador tradicional de Python para Windows. La ventana confirma que se pegó texto sin revelar el ticket; no lo guarda en disco. Cerrar la ventana cancela el inicio. Esta interfaz gráfica no se verificó en Windows desde Codex; las 22 pruebas existentes del servidor y sincronizador siguen pasando.

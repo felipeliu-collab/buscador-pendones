@@ -146,6 +146,52 @@ def download(url):
     return data.decode('utf-8-sig')
 
 
+def ticket_window():
+    """Native masked dialog; clipboard and credential never go to stdout or disk."""
+    import tkinter as tk
+    from tkinter import messagebox
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        raise RuntimeError('No hay una pantalla gráfica disponible.') from None
+    root.title('Buscador de Pendones · Ticket de ChileCompra')
+    root.geometry('560x240')
+    root.resizable(False, False)
+    result = []
+    tk.Label(root, text='Copia el ticket del correo y pulsa «Pegar ticket».', font=('Arial', 12)).pack(pady=(20, 8))
+    entry = tk.Entry(root, show='*', width=58)
+    entry.pack(padx=20, pady=8)
+    status = tk.Label(root, text='El ticket se oculta y no se guarda en archivos.')
+    status.pack(pady=5)
+
+    def paste():
+        try:
+            value = root.clipboard_get().strip()
+        except tk.TclError:
+            messagebox.showerror('Portapapeles vacío', 'Primero copia el ticket desde el correo.', parent=root)
+            return
+        entry.delete(0, tk.END)
+        entry.insert(0, value)
+        status.config(text='Ticket pegado (oculto). Pulsa «Iniciar buscador».')
+
+    def submit(event=None):
+        value = entry.get().strip()
+        if not value:
+            messagebox.showerror('Falta el ticket', 'Pega o escribe el ticket antes de continuar.', parent=root)
+            return
+        result.append(value)
+        root.destroy()
+
+    buttons = tk.Frame(root)
+    buttons.pack(pady=15)
+    tk.Button(buttons, text='Pegar ticket', command=paste, width=18).pack(side=tk.LEFT, padx=8)
+    tk.Button(buttons, text='Iniciar buscador', command=submit, width=18).pack(side=tk.LEFT, padx=8)
+    root.bind('<Return>', submit)
+    entry.focus_set()
+    root.mainloop()
+    return result[0] if result else None
+
+
 class Handler(BaseHTTPRequestHandler):
     store = None
     worker = None
@@ -299,14 +345,25 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--data-dir', default=str(ROOT / 'data'))
     parser.add_argument('--ask-ticket', action='store_true', help='Pedir el ticket con entrada oculta para ejecución local; no se guarda en disco.')
+    parser.add_argument('--ticket-window', action='store_true', help='Abrir una ventana con entrada oculta y botón Pegar ticket.')
     parser.add_argument('--open-browser', action='store_true', help='Abrir la vista compatible en el navegador de este equipo.')
     parser.add_argument('--frame-origin', action='append', default=[], help='Origen HTTPS exacto autorizado para incrustar la aplicación; se puede repetir.')
     args = parser.parse_args()
+    if args.ask_ticket and args.ticket_window:
+        parser.error('Elige --ask-ticket o --ticket-window, no ambos.')
     for origin in args.frame_origin:
         parsed = urllib.parse.urlsplit(origin)
         if parsed.scheme != 'https' or not parsed.hostname or not re.fullmatch(r'[A-Za-z0-9.-]+(?::[0-9]+)?', parsed.netloc) or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment or '*' in origin or any(c.isspace() for c in origin):
             parser.error('--frame-origin debe ser un origen HTTPS exacto, sin ruta, credenciales ni comodines.')
     Handler.frame_origins = ["'self'", *args.frame_origin]
+    if args.ticket_window:
+        try:
+            value = ticket_window()
+        except (ImportError, RuntimeError):
+            parser.error('No está disponible la interfaz gráfica. Instala Python con Tcl/Tk o usa --ask-ticket.')
+        if value is None:
+            parser.exit(0, 'Inicio cancelado; no se inició el buscador.\n')
+        os.environ['CHILECOMPRA_TICKET'] = value
     if args.ask_ticket:
         if not sys.stdin.isatty():
             parser.error('--ask-ticket requiere una terminal interactiva para evitar mostrar la credencial.')
