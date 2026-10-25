@@ -217,7 +217,8 @@ class Handler(BaseHTTPRequestHandler):
             esc = lambda value: html.escape(str(value)) if value is not None else 'No informado'
             cells = ''.join('<td>' + esc(result.get(k)) + '</td>' for k in ('id', 'organismo', 'cantidad', 'presupuesto', 'fecha_cierre'))
             cells += '<td><a href="' + esc(result['enlace']) + '">Detalle API (requiere ticket)</a></td>'
-            cells += '<td>' + esc(result.get('titulo') or '') + '<br>' + esc(json.dumps(result['items'], ensure_ascii=False)) + '</td>'
+            location = 'En ítems, sin mención en el título' if result.get('coincidencia_en_items') and not result.get('coincidencia_en_titulo') else 'En ítems' if result.get('coincidencia_en_items') else 'En título o descripción'
+            cells += '<td><strong>' + location + '</strong><br>' + esc(result.get('titulo') or '') + '<br>' + esc(json.dumps(result.get('items_coincidentes') or result['items'], ensure_ascii=False)) + '</td>'
             rows += '<tr>' + cells + '</tr>'
         return rows
 
@@ -237,7 +238,7 @@ class Handler(BaseHTTPRequestHandler):
             'sync-progress': f"{meta.get('estado', 'iniciando')} · trabajador {'activo' if state['trabajador_activo'] else 'detenido'} · fase {meta.get('fase', 'sin iniciar')} · páginas {meta.get('paginas_leidas', '0')}/{meta.get('paginas_totales') or '?'} · detalles guardados {state['detalles_guardados']} · pendientes {state['detalles_pendientes']}",
             'next-sync': 'Después de terminar este ciclo' if meta.get('estado') == 'sincronizando' else self.local_time(meta.get('reintentar_desde') or meta.get('proximo_intento')),
             'connection-error': meta.get('error_conexion') or meta.get('error') or 'Ninguno registrado',
-            'status': f"{len(data['resultados'])} coincidencias en los datos reales recibidos de ChileCompra. {data['pendientes']} detalles pendientes. Los resultados son parciales mientras la sincronización no esté completa. Fechas ambiguas omitidas: {data['fecha_no_interpretable']}.",
+            'status': f"{len(data['resultados'])} coincidencias en los datos reales recibidos de ChileCompra. {data['coincidencias_en_items']} tienen coincidencias en ítems; {data['coincidencias_items_sin_titulo']} de ellas no mencionan el término en el título. {data['pendientes']} detalles pendientes. Los resultados son parciales mientras la sincronización no esté completa. Fechas ambiguas omitidas: {data['fecha_no_interpretable']}.",
             'coverage': data['cobertura'],
         }
         for element, value in values.items():
@@ -278,10 +279,19 @@ class Handler(BaseHTTPRequestHandler):
         document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Buscador de Pendones · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Buscador de Pendones</h1><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="./monitor">Actualizar ahora</a> · <a href="./">Vista moderna</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
         document += rows + '</tbody></table><h2>Resultados disponibles</h2><p>'
         document += str(len(data['resultados'])) + ' coincidencias reales en la caché consultada. Durante la carga los resultados son parciales; cero coincidencias no acredita ausencia de oportunidades.</p><p>' + escape(data['cobertura']) + '</p>'
+        document += '<p><strong>Coincidencias en ítems: ' + str(data['coincidencias_en_items']) + '. Con coincidencia en ítems y sin mención en el título: ' + str(data['coincidencias_items_sin_titulo']) + '.</strong> Detalles todavía pendientes de revisar: ' + str(data['pendientes']) + '.</p>'
         document += '<p>Compras sin ítems: ' + str(data['sin_items']) + '. Fechas ambiguas omitidas: ' + str(data['fecha_no_interpretable']) + '.</p>'
         document += '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Organismo</th><th>Cantidad</th><th>Presupuesto</th><th>Cierre</th><th>Enlace</th><th>Ítems de la fuente</th></tr></thead><tbody>' + purchases + '</tbody></table></div></main></body></html>'
         return document.encode()
     def send(self, status, body, content_type='application/json; charset=utf-8'):
+        try:
+            self._send(status, body, content_type)
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            # A browser refresh or closed tab can disconnect during headers/body.
+            # This does not stop the independent ChileCompra worker.
+            self.close_connection = True
+
+    def _send(self, status, body, content_type):
         data = json.dumps(body, ensure_ascii=False).encode() if isinstance(body, dict) else body
         self.send_response(status)
         self.send_header('Content-Type', content_type)

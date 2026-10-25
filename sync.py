@@ -338,11 +338,13 @@ def opportunities(store, match, normalize):
             # This is the documented official detail resource, not an invented portal URL.
             'enlace': BASE + '/' + urllib.parse.quote(code, safe=''),
             'enlace_requiere_ticket': True,
-            'items': products, 'items_disponibles': bool(products), 'coincidencias': hits,
+            'items': products, 'items_coincidentes': matching_products, 'items_disponibles': bool(products), 'coincidencias': hits,
         })
     return {
         'resultados': result, 'sincronizacion': store.metadata(), 'pendientes': pending,
         'sin_items': missing_items, 'fecha_no_interpretable': unknown_dates,
+        'coincidencias_en_items': sum(r['coincidencia_en_items'] for r in result),
+        'coincidencias_items_sin_titulo': sum(r['coincidencia_en_items'] and not r['coincidencia_en_titulo'] for r in result),
         'fuente': BASE, 'intervalo_segundos': INTERVAL,
         'cobertura': 'Fuente: Dirección ChileCompra, API Compra Ágil v2. Se consultan todas las regiones sin filtrar palabras en el listado. Los resultados son compras publicadas con cierre futuro según los datos recibidos. La cobertura depende de la API y de completar listado y detalles; no incluye adjuntos ni ítems omitidos por la fuente. Los cambios pueden tardar hasta el siguiente ciclo y el tiempo de procesamiento.',
     }

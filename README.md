@@ -138,3 +138,11 @@ Actualiza el repositorio con `git pull` y ejecuta `python app.py --ticket-window
 ### Error `No time zone found with key America/Santiago` en Windows
 
 La página usa UTC con una etiqueta explícita si Windows no dispone de la base de zonas IANA; no debería quedar en blanco. Para mostrar la hora chilena, se puede instalar opcionalmente la base oficial para Python con `python -m pip install tzdata` y reiniciar el buscador. Se verifican ambas páginas mediante una prueba que simula la ausencia de esos datos.
+
+### Coincidencias dentro de ítems y carga parcial
+
+La web muestra cuántas coincidencias provienen de ítems y cuántas no mencionan el término en el título. Cada resultado señala dónde se encontró y muestra los ítems coincidentes. La búsqueda incluye `productos_solicitados[].nombre` y `.descripcion` incluso si título y descripción general no contienen los términos; no usa `q` para descartar compras antes de consultar sus productos. Una prueba específica verifica ese recorrido completo.
+
+Los títulos probables tienen prioridad para obtener resultados tempranos; después se consultan todos los demás detalles pendientes. Durante la carga inicial, las coincidencias exclusivas de ítems pueden aparecer más tarde. El contador de pendientes debe llegar a cero y la sincronización completarse antes de evaluar la búsqueda completa, dentro de los límites de cobertura documentados.
+
+Una desconexión del navegador durante el envío de HTML (`ConnectionResetError`, incluido WinError 10054) se maneja cerrando esa respuesta; no se imprime un traceback por ese cierre ni se detiene el trabajador de ChileCompra. Los otros errores de servidor no se silencian.

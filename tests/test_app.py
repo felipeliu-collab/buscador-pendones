@@ -17,6 +17,16 @@ SOURCE = 'https://datos-abiertos.chilecompra.cl/'
 
 
 class SearchTests(unittest.TestCase):
+    def test_browser_disconnect_does_not_raise_but_other_errors_remain_visible(self):
+        handler = Handler.__new__(Handler)
+        for error in (ConnectionResetError(10054, 'client closed'), ConnectionAbortedError(), BrokenPipeError()):
+            with self.subTest(error=type(error).__name__), patch.object(handler, '_send', side_effect=error):
+                handler.send(200, {'estado': 'ok'})
+                self.assertTrue(handler.close_connection)
+        with patch.object(handler, '_send', side_effect=RuntimeError('real server bug')):
+            with self.assertRaises(RuntimeError):
+                handler.send(200, {})
+
     def test_nested_items_accents_and_missing_fields(self):
         records = [
             {'id': 'PRUEBA-1', 'tipo': 'Compra Ágil', 'titulo': 'Material institucional',

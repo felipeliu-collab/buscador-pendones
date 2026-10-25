@@ -48,11 +48,17 @@ function render(results) {
       const itemsCell = document.createElement('td');
       const info = document.createElement('p');
       info.textContent = `${result.coincidencias.join(', ')}. ${result.items_disponibles ? 'Hay ítems; completitud no verificada.' : 'Sin ítems: búsqueda parcial.'}`;
+      if (result.coincidencia_en_items) info.textContent += result.coincidencia_en_titulo ? ' Coincidencia en ítems y título.' : ' Coincidencia en ítems, sin mención en el título.';
       itemsCell.append(info);
       if (result.items_disponibles) {
         const details = document.createElement('details');
         const summary = document.createElement('summary'); summary.textContent = 'Ver ítems de la fuente';
         const pre = document.createElement('pre'); pre.textContent = JSON.stringify(result.items, null, 2);
+        if (result.items_coincidentes && result.items_coincidentes.length) {
+          const excerpt = document.createElement('p');
+          excerpt.textContent = 'Ítems coincidentes: ' + JSON.stringify(result.items_coincidentes);
+          itemsCell.append(excerpt);
+        }
         details.append(summary, pre); itemsCell.append(details);
       }
       row.append(itemsCell); table.querySelector('tbody').append(row);
@@ -96,7 +102,7 @@ async function loadAutomatic() {
     autoStatus.dataset.state = sync.error ? 'error' : sync.estado === 'actualizado' ? 'ok' : 'pending';
     const data = await fetchJSON('api/oportunidades');
     if (!manualMode) {
-      resultStatus.textContent = `${data.resultados.length} coincidencias en la caché actual. ${data.pendientes} detalles pendientes; ${data.sin_items} compras abiertas sin ítems; ${data.fecha_no_interpretable} omitidas por fecha ambigua. ${sync.ultima_sincronizacion ? '' : 'Aún no se ha completado la carga inicial.'} Los resultados son parciales durante la carga y pueden cambiar entre ciclos.`;
+      resultStatus.textContent = `${data.resultados.length} coincidencias en la caché actual. ${data.coincidencias_en_items} con coincidencias en ítems; ${data.coincidencias_items_sin_titulo} de ellas sin mención en el título. ${data.pendientes} detalles pendientes; ${data.sin_items} compras abiertas sin ítems; ${data.fecha_no_interpretable} omitidas por fecha ambigua. ${sync.ultima_sincronizacion ? '' : 'Aún no se ha completado la carga inicial.'} Los resultados son parciales durante la carga y pueden cambiar entre ciclos.`;
       coverage.textContent = data.cobertura;
       render(data.resultados);
     }

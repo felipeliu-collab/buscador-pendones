@@ -62,6 +62,27 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(found['resultados'][0]['presupuesto'], '12000 CLP')
         self.assertEqual(found['pendientes'], 0)
 
+    def test_product_description_match_is_returned_without_a_title_match(self):
+        doc = detail('PRUEBA-SOLO-ITEM')
+        doc['nombre'] = 'Servicio de impresión institucional'
+        doc['descripcion'] = 'Según especificaciones de productos'
+        doc['productos_solicitados'] = [
+            {'nombre': 'Tela de batik', 'descripcion': 'Pendón roller 80 x 200', 'cantidad': 1},
+            {'nombre': 'Papel', 'descripcion': 'Hojas blancas', 'cantidad': 500},
+        ]
+        api = FakeAPI([[listing('PRUEBA-SOLO-ITEM')]], {'PRUEBA-SOLO-ITEM': doc})
+        Synchronizer(self.store, api).run()
+        found = opportunities(self.store, TERMS, normalize)
+        self.assertEqual(len(found['resultados']), 1)
+        result = found['resultados'][0]
+        self.assertFalse(result['coincidencia_en_titulo'])
+        self.assertTrue(result['coincidencia_en_items'])
+        self.assertEqual(result['cantidad'], '1')
+        self.assertEqual(result['items_coincidentes'], [doc['productos_solicitados'][0]])
+        self.assertEqual(found['coincidencias_items_sin_titulo'], 1)
+        self.assertEqual(found['coincidencias_en_items'], 1)
+        self.assertIn(('PRUEBA-SOLO-ITEM', None), api.calls)
+
     def test_incremental_does_not_filter_states_and_removes_closed_purchase(self):
         Synchronizer(self.store, FakeAPI([[listing('PRUEBA')]], {'PRUEBA': detail('PRUEBA')})).run()
         api = FakeAPI([[listing('PRUEBA', 'cancelada')]], {})
