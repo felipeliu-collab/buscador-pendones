@@ -22,6 +22,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sync import Store, Synchronizer, connection_status, opportunities, timestamp
 from excel import export_xlsx
+from avisos import AlertCenter, desktop_alerts
 
 ROOT = Path(__file__).parent
 MAX_BYTES = 10 * 1024 * 1024
@@ -196,6 +197,7 @@ def ticket_window():
 class Handler(BaseHTTPRequestHandler):
     store = None
     worker = None
+    alerts = None
     frame_origins = ["'self'"]
 
     @staticmethod
@@ -255,6 +257,25 @@ class Handler(BaseHTTPRequestHandler):
             document = document.replace('<table hidden id="results">', '<table id="results">')
         return document.encode()
 
+    def alerts_page(self):
+        center = self.alerts
+        events = center.history()
+        meta = self.store.metadata()
+        esc = lambda value: html.escape(str(value))
+        body = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Avisos · Buscador de Pendones</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Avisos de compras</h1><p><a href="./monitor">Ver compras</a> · <a href="./avisos">Actualizar avisos</a></p>'''
+        body += '<p>Avisos: ' + ('activados' if center.enabled() else 'silenciados') + '. Ventana de escritorio: ' + ('activa' if center.desktop_active else 'no activa en este proceso; aquí puedes consultar el historial') + '.</p>'
+        body += '<p>Se avisa de coincidencias recién detectadas, incluso al descargar los ítems de una compra antigua. No significa necesariamente una publicación nueva. La primera revisión establece un punto de partida sin generar avisos por lo ya conocido. No se repiten avisos para el mismo ID.</p>'
+        body += '<p>El programa debe estar abierto y ChileCompra debe permitir actualizar. Si hay cuota agotada o detalles pendientes, la detección será parcial o tardía. Revisa la vigencia antes de ofertar.</p>'
+        body += '<p>Última revisión de la caché para avisos: ' + esc(self.local_time(meta.get('avisos_ultima_revision'))) + '. Estado de sincronización: ' + esc(meta.get('estado', 'iniciando')) + '. ' + esc(meta.get('error') or meta.get('avisos_error') or '') + '</p>'
+        if not events:
+            body += '<p>Todavía no hay nuevas coincidencias registradas después del punto de partida. Esto no significa que no existan oportunidades.</p>'
+        else:
+            body += '<p>' + str(len(events)) + ' avisos guardados. Se muestran los 100 más recientes.</p><div class="table-wrap"><table><thead><tr><th>Detectado</th><th>ID</th><th>Título</th><th>Encontrado en</th></tr></thead><tbody>'
+            for event in events[:100]:
+                body += '<tr><td>' + esc(self.local_time(event['detectado_en'])) + '</td><td>' + esc(event['id']) + '</td><td>' + esc(event['titulo']) + '</td><td>' + esc(', '.join(event['donde_coincide'])) + '</td></tr>'
+            body += '</tbody></table></div>'
+        return (body + '</main></body></html>').encode()
+
     def monitor_page(self):
         state = connection_status(self.store, self.worker)
         meta = state['sincronizacion']
@@ -277,7 +298,7 @@ class Handler(BaseHTTPRequestHandler):
         rows += '<tr><th>Última sincronización completa</th><td>' + local_time(meta.get('ultima_sincronizacion')) + '</td></tr>'
         rows += '<tr><th>Próximo intento</th><td>' + ('Después de terminar este ciclo' if meta.get('estado') == 'sincronizando' else local_time(meta.get('reintentar_desde') or meta.get('proximo_intento'))) + '</td></tr>'
         purchases = self.result_rows(data['resultados'])
-        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Buscador de Pendones · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Buscador de Pendones</h1><p>Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.</p><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="./monitor">Actualizar ahora</a> · <a href="./">Vista moderna</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
+        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Buscador de Pendones · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Buscador de Pendones</h1><p>Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.</p><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="./monitor">Actualizar ahora</a> · <a href="./">Vista moderna</a> · <a href="./avisos">Avisos de nuevas coincidencias</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
         document += rows + '</tbody></table><h2>Resultados disponibles</h2><p><a class="download-button" href="./descargar.xlsx">Descargar Excel</a></p><p>Exporta las coincidencias automáticas disponibles al descargar. Si la carga está incompleta, se indicará en la hoja Estado.</p><p>'
         document += str(len(data['resultados'])) + ' coincidencias reales en la caché consultada. Durante la carga los resultados son parciales; cero coincidencias no acredita ausencia de oportunidades.</p><p>' + escape(data['cobertura']) + '</p>'
         document += '<p><strong>Coincidencias en ítems: ' + str(data['coincidencias_en_items']) + '. Con coincidencia en ítems y sin mención en el título: ' + str(data['coincidencias_items_sin_titulo']) + '.</strong> Detalles todavía pendientes de revisar: ' + str(data['pendientes']) + '.</p>'
@@ -307,6 +328,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
+        if path == '/avisos':
+            if self.alerts is None:
+                return self.send(503, {'error': 'Centro de avisos no iniciado.'})
+            return self.send(200, self.alerts_page(), 'text/html; charset=utf-8')
         routes = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/legacy.js': ('legacy.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
         if path == '/descargar.xlsx':
             if self.store is None:
@@ -373,6 +398,9 @@ if __name__ == '__main__':
     parser.add_argument('--ticket-window', action='store_true', help='Abrir una ventana con entrada oculta y botón Pegar ticket.')
     parser.add_argument('--open-browser', action='store_true', help='Abrir la vista compatible en el navegador de este equipo.')
     parser.add_argument('--frame-origin', action='append', default=[], help='Origen HTTPS exacto autorizado para incrustar la aplicación; se puede repetir.')
+    notifications = parser.add_mutually_exclusive_group()
+    notifications.add_argument('--desktop-alerts', action='store_true', help='Abrir el panel de avisos en pantalla (automático en Windows).')
+    notifications.add_argument('--no-desktop-alerts', action='store_true', help='Ejecutar sin ventana de avisos; el historial sigue disponible.')
     args = parser.parse_args()
     if args.ask_ticket and args.ticket_window:
         parser.error('Elige --ask-ticket o --ticket-window, no ambos.')
@@ -395,8 +423,24 @@ if __name__ == '__main__':
         os.environ['CHILECOMPRA_TICKET'] = getpass.getpass('Ticket ChileCompra (entrada oculta; no se guarda): ').strip()
     Handler.store = Store(Path(args.data_dir) / 'compras.sqlite3')
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    Handler.alerts = AlertCenter(Handler.store)
+    loader = lambda: opportunities(Handler.store, TERMS, normalize)
+    Handler.alerts.observe(loader()['resultados'])
+    Handler.alerts.start(loader)
     Handler.worker = Synchronizer(Handler.store).start()
     print(f'Buscador de Pendones escuchando en {args.host}:{args.port}', flush=True)
     if args.open_browser:
         threading.Timer(0.5, webbrowser.open, args=(f'http://127.0.0.1:{args.port}/monitor',)).start()
-    server.serve_forever()
+    if not args.no_desktop_alerts and (sys.platform == 'win32' or args.desktop_alerts):
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            desktop_alerts(Handler.alerts, args.port)
+        except (ImportError, RuntimeError):
+            print('No se pudo abrir el panel gráfico de avisos. El buscador sigue activo; consulta el historial en la página de avisos.', flush=True)
+            server_thread.join()
+        finally:
+            server.shutdown()
+            server.server_close()
+    else:
+        server.serve_forever()

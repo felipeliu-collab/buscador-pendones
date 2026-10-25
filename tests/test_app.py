@@ -12,6 +12,7 @@ from app import Handler, download, official_url, search
 from sync import Store
 from pathlib import Path
 from zoneinfo import ZoneInfoNotFoundError
+from avisos import AlertCenter
 
 SOURCE = 'https://datos-abiertos.chilecompra.cl/'
 
@@ -77,8 +78,10 @@ class HTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.previous_store = Handler.store
+        cls.previous_alerts = Handler.alerts
         cls.temp = tempfile.TemporaryDirectory()
         Handler.store = Store(Path(cls.temp.name) / 'test.sqlite3')
+        Handler.alerts = AlertCenter(Handler.store)
         Handler.store.set_meta(estado='pendiente', error='DIAGNÓSTICO SINTÉTICO', conexion='error_red_o_respuesta')
         cls.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -91,6 +94,7 @@ class HTTPTests(unittest.TestCase):
         cls.server.server_close()
         cls.thread.join()
         Handler.store = cls.previous_store
+        Handler.alerts = cls.previous_alerts
         cls.temp.cleanup()
 
     def test_page_assets_and_health(self):
@@ -148,6 +152,16 @@ class HTTPTests(unittest.TestCase):
         self.assertNotIn('<script', page)
         self.assertIn('Descargar Excel', page)
         self.assertIn('./descargar.xlsx', page)
+
+    def test_alert_history_works_without_javascript_and_escapes_titles(self):
+        Handler.alerts.observe([])
+        Handler.alerts.observe([{'id': 'PRUEBA-AVISO', 'titulo': '<script>alert(1)</script>', 'donde_coincide': ['Ítems']}])
+        with urllib.request.urlopen(self.base + '/avisos') as response:
+            page = response.read().decode()
+        self.assertIn('PRUEBA-AVISO', page)
+        self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;', page)
+        self.assertNotIn('<script>', page)
+        self.assertIn('No significa necesariamente una publicación nueva', page)
 
     def test_excel_download_is_an_attachment_and_makes_no_api_calls(self):
         import io
