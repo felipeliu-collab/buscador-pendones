@@ -146,6 +146,19 @@ class HTTPTests(unittest.TestCase):
         self.assertIn('DIAGNÓSTICO SINTÉTICO', page)
         self.assertIn('Última sincronización completa', page)
         self.assertNotIn('<script', page)
+        self.assertIn('Descargar Excel', page)
+        self.assertIn('./descargar.xlsx', page)
+
+    def test_excel_download_is_an_attachment_and_makes_no_api_calls(self):
+        import io
+        from zipfile import ZipFile
+        with patch('sync.API.get', side_effect=AssertionError('Download must use cache')):
+            with urllib.request.urlopen(self.base + '/descargar.xlsx') as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                self.assertIn('attachment; filename="pendones.xlsx"', response.headers['Content-Disposition'])
+                with ZipFile(io.BytesIO(response.read())) as book:
+                    self.assertIn('xl/workbook.xml', book.namelist())
 
     def test_missing_windows_timezone_database_does_not_break_pages(self):
         Handler.store.set_meta(ultima_conexion_exitosa='2026-10-25T12:00:00Z', ultima_sincronizacion='2026-10-25T12:00:00Z')

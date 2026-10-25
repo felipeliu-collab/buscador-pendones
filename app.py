@@ -21,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sync import Store, Synchronizer, connection_status, opportunities, timestamp
+from excel import export_xlsx
 
 ROOT = Path(__file__).parent
 MAX_BYTES = 10 * 1024 * 1024
@@ -277,25 +278,27 @@ class Handler(BaseHTTPRequestHandler):
         rows += '<tr><th>Próximo intento</th><td>' + ('Después de terminar este ciclo' if meta.get('estado') == 'sincronizando' else local_time(meta.get('reintentar_desde') or meta.get('proximo_intento'))) + '</td></tr>'
         purchases = self.result_rows(data['resultados'])
         document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Buscador de Pendones · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Buscador de Pendones</h1><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="./monitor">Actualizar ahora</a> · <a href="./">Vista moderna</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
-        document += rows + '</tbody></table><h2>Resultados disponibles</h2><p>'
+        document += rows + '</tbody></table><h2>Resultados disponibles</h2><p><a class="download-button" href="./descargar.xlsx">Descargar Excel</a></p><p>Exporta las coincidencias automáticas disponibles al descargar. Si la carga está incompleta, se indicará en la hoja Estado.</p><p>'
         document += str(len(data['resultados'])) + ' coincidencias reales en la caché consultada. Durante la carga los resultados son parciales; cero coincidencias no acredita ausencia de oportunidades.</p><p>' + escape(data['cobertura']) + '</p>'
         document += '<p><strong>Coincidencias en ítems: ' + str(data['coincidencias_en_items']) + '. Con coincidencia en ítems y sin mención en el título: ' + str(data['coincidencias_items_sin_titulo']) + '.</strong> Detalles todavía pendientes de revisar: ' + str(data['pendientes']) + '.</p>'
         document += '<p>Compras sin ítems: ' + str(data['sin_items']) + '. Fechas ambiguas omitidas: ' + str(data['fecha_no_interpretable']) + '.</p>'
         document += '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Organismo</th><th>Cantidad</th><th>Presupuesto</th><th>Cierre</th><th>Enlace</th><th>Ítems de la fuente</th></tr></thead><tbody>' + purchases + '</tbody></table></div></main></body></html>'
         return document.encode()
-    def send(self, status, body, content_type='application/json; charset=utf-8'):
+    def send(self, status, body, content_type='application/json; charset=utf-8', download_name=None):
         try:
-            self._send(status, body, content_type)
+            self._send(status, body, content_type, download_name)
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
             # A browser refresh or closed tab can disconnect during headers/body.
             # This does not stop the independent ChileCompra worker.
             self.close_connection = True
 
-    def _send(self, status, body, content_type):
+    def _send(self, status, body, content_type, download_name=None):
         data = json.dumps(body, ensure_ascii=False).encode() if isinstance(body, dict) else body
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(data)))
+        if download_name:
+            self.send_header('Content-Disposition', f'attachment; filename="{download_name}"')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Cache-Control', 'no-store')
         self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors " + ' '.join(self.frame_origins))
@@ -305,6 +308,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
         routes = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/legacy.js': ('legacy.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
+        if path == '/descargar.xlsx':
+            if self.store is None:
+                return self.send(503, {'error': 'Almacenamiento no iniciado.'})
+            data = opportunities(self.store, TERMS, normalize)
+            return self.send(200, export_xlsx(data), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'pendones.xlsx')
         if path == '/monitor':
             if self.store is None:
                 return self.send(503, {'error': 'Almacenamiento no iniciado.'})
