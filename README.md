@@ -165,3 +165,9 @@ Luego abre **Buscador de Pendones** desde el escritorio. Si el servidor ya respo
 Se eliminó la prioridad anterior basada en el título: con una cuota reducida podía retrasar las oportunidades que contienen «pendón» solo en un producto. Se verificó el recorrido listado → detalle sin término en el título → coincidencia exclusiva en la descripción de un ítem → fila en Excel. Las pruebas también comprueban reanudación antes de nuevas páginas, conservación del cursor ante error y orden de la cola al reiniciar.
 
 Actualizar el programa no descarga de inmediato los detalles que faltan. Si la API responde 429, se mantiene la pausa y la cola se retoma cuando corresponde; no se evade la cuota ni se garantiza cobertura completa con un acceso insuficiente.
+
+## Buscar en título O descripción O ítems
+
+La condición es inclusiva: basta una coincidencia en cualquiera de los tres campos descargados para que una compra publicada con cierre futuro interpretable aparezca en resultados. Cada compra incluye **Encontrado en: Título, Descripción, Ítems** según corresponda, además de la descripción general y los productos. El Excel agrega **Descripción de la compra** y **Encontrado en**. Se comprueban los tres casos por separado, sin requerir que el título contenga la palabra ni asumir coincidencias por rubro.
+
+No se ha verificado ni reproducido la cobertura o el funcionamiento interno de Licilab. Esta implementación usa la API oficial autorizada y los límites ya documentados. Una cola pendiente o una pausa HTTP 429 impiden presentar el conjunto como completo, aunque la condición de búsqueda local sea correcta.

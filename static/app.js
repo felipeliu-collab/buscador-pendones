@@ -48,8 +48,14 @@ function render(results) {
       const itemsCell = document.createElement('td');
       const info = document.createElement('p');
       info.textContent = `${result.coincidencias.join(', ')}. ${result.items_disponibles ? 'Hay ítems; completitud no verificada.' : 'Sin ítems: búsqueda parcial.'}`;
-      if (result.coincidencia_en_items) info.textContent += result.coincidencia_en_titulo ? ' Coincidencia en ítems y título.' : ' Coincidencia en ítems, sin mención en el título.';
+      if (result.donde_coincide) info.textContent += ' Encontrado en: ' + result.donde_coincide.join(', ') + '.';
       itemsCell.append(info);
+      if (result.titulo) {
+        const title = document.createElement('p'); title.textContent = 'Título: ' + result.titulo; itemsCell.append(title);
+      }
+      if (result.descripcion) {
+        const description = document.createElement('p'); description.textContent = 'Descripción: ' + result.descripcion; itemsCell.append(description);
+      }
       if (result.items_disponibles) {
         const details = document.createElement('details');
         const summary = document.createElement('summary'); summary.textContent = 'Ver ítems de la fuente';

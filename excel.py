@@ -40,7 +40,7 @@ def worksheet(rows):
 
 
 def export_xlsx(data):
-    purchases = [['ID', 'Título', 'Organismo', 'Ítems', 'Cantidad de ítems coincidentes', 'Presupuesto informado', 'Fecha de cierre', 'Enlace API (requiere ticket)', 'Coincidencia en título', 'Coincidencia en ítems', 'Términos encontrados']]
+    purchases = [['ID', 'Título', 'Organismo', 'Ítems', 'Cantidad de ítems coincidentes', 'Presupuesto informado', 'Fecha de cierre', 'Enlace API (requiere ticket)', 'Coincidencia en título', 'Coincidencia en ítems', 'Términos encontrados', 'Descripción de la compra', 'Encontrado en']]
     items = [['ID compra', 'Nombre del ítem', 'Descripción del ítem', 'Cantidad', 'Unidad de medida', 'Coincidente']]
     for result in data['resultados']:
         item_lines = []
@@ -50,7 +50,7 @@ def export_xlsx(data):
                 if item.get('cantidad') is not None:
                     parts.append('Cantidad: ' + str(item['cantidad']) + (' ' + str(item['unidad_medida']) if item.get('unidad_medida') else ''))
                 item_lines.append(' | '.join(parts) or 'Ítem sin datos informados')
-        purchases.append([result.get('id'), result.get('titulo'), result.get('organismo'), '\n'.join(item_lines) or 'No informado', result.get('cantidad'), result.get('presupuesto'), result.get('fecha_cierre'), result.get('enlace'), 'Sí' if result.get('coincidencia_en_titulo') else 'No', 'Sí' if result.get('coincidencia_en_items') else 'No', ', '.join(result.get('coincidencias', []))])
+        purchases.append([result.get('id'), result.get('titulo'), result.get('organismo'), '\n'.join(item_lines) or 'No informado', result.get('cantidad'), result.get('presupuesto'), result.get('fecha_cierre'), result.get('enlace'), 'Sí' if result.get('coincidencia_en_titulo') else 'No', 'Sí' if result.get('coincidencia_en_items') else 'No', ', '.join(result.get('coincidencias', [])), result.get('descripcion'), ', '.join(result.get('donde_coincide') or []) or 'No informado'])
         for item in result.get('items') or []:
             if isinstance(item, dict):
                 items.append([result.get('id'), item.get('nombre'), item.get('descripcion'), item.get('cantidad'), item.get('unidad_medida'), 'Sí' if item in result.get('items_coincidentes', []) else 'No'])

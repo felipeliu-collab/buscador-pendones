@@ -83,6 +83,36 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(found['coincidencias_en_items'], 1)
         self.assertIn(('PRUEBA-SOLO-ITEM', None), api.calls)
 
+    def test_title_or_description_or_item_each_qualifies_independently(self):
+        docs = {}
+        for code in ('PRUEBA-TITULO', 'PRUEBA-DESCRIPCION', 'PRUEBA-ITEM', 'PRUEBA-NO'):
+            doc = detail(code)
+            doc.update(nombre='Material institucional', descripcion='Ver especificaciones')
+            doc['productos_solicitados'] = [{'nombre': 'Impresión', 'descripcion': 'Material gráfico', 'cantidad': 1}]
+            docs[code] = doc
+        docs['PRUEBA-TITULO']['nombre'] = 'Adquisición de pendón'
+        docs['PRUEBA-DESCRIPCION']['descripcion'] = 'Se requiere un pendón para la actividad'
+        docs['PRUEBA-ITEM']['productos_solicitados'][0]['descripcion'] = 'Impresión de pendón de mesa'
+        api = FakeAPI([[listing(code) for code in docs]], docs)
+        Synchronizer(self.store, api).run()
+        data = opportunities(self.store, TERMS, normalize)
+        found = {r['id']: r for r in data['resultados']}
+        self.assertEqual(set(found), {'PRUEBA-TITULO', 'PRUEBA-DESCRIPCION', 'PRUEBA-ITEM'})
+        for code, location in [('PRUEBA-TITULO', 'Título'), ('PRUEBA-DESCRIPCION', 'Descripción'), ('PRUEBA-ITEM', 'Ítems')]:
+            self.assertEqual(found[code]['donde_coincide'], [location])
+        self.assertTrue(found['PRUEBA-DESCRIPCION']['coincidencia_en_descripcion'])
+        self.assertFalse(found['PRUEBA-DESCRIPCION']['coincidencia_en_titulo'])
+        self.assertFalse(found['PRUEBA-DESCRIPCION']['coincidencia_en_items'])
+        from excel import export_xlsx
+        from zipfile import ZipFile
+        import io
+        with ZipFile(io.BytesIO(export_xlsx(data))) as book:
+            xml = book.read('xl/worksheets/sheet1.xml').decode()
+            for code in found:
+                self.assertIn(code, xml)
+            self.assertIn('Descripción de la compra', xml)
+            self.assertIn('Encontrado en', xml)
+
     def test_pending_details_do_not_prioritize_titles_and_survive_restart(self):
         hidden = listing('Z-SIN-PALABRA')
         titled = {**listing('A-CON-PALABRA'), 'nombre': 'Pendones'}

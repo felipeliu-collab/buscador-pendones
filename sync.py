@@ -340,11 +340,17 @@ def opportunities(store, match, normalize):
             amount = budget.get('presupuesto_estimado')
         currency = budget.get('moneda') or ''
         code = detail['codigo']
+        title_hit = bool(match.search(normalize(str(detail.get('nombre') or ''))))
+        description_hit = bool(match.search(normalize(str(detail.get('descripcion') or ''))))
+        items_hit = bool(match.search(normalize(product_text)))
         result.append({
             'id': code, 'organismo': (detail.get('institucion') or {}).get('organismo_comprador'),
             'titulo': detail.get('nombre'),
-            'coincidencia_en_titulo': bool(match.search(normalize(str(detail.get('nombre') or '')))),
-            'coincidencia_en_items': bool(match.search(normalize(product_text))),
+            'descripcion': detail.get('descripcion'),
+            'coincidencia_en_titulo': title_hit,
+            'coincidencia_en_descripcion': description_hit,
+            'coincidencia_en_items': items_hit,
+            'donde_coincide': [label for label, hit in [('Título', title_hit), ('Descripción', description_hit), ('Ítems', items_hit)] if hit],
             'cantidad': '; '.join(quantities) or None,
             'presupuesto': (str(amount) + ' ' + currency).strip() if amount is not None else None,
             'fecha_cierre': iso(closing),
