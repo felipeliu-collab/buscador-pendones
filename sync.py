@@ -7,7 +7,6 @@ import os
 import sqlite3
 import threading
 import time
-import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -106,12 +105,13 @@ class Store:
 
     def pending(self):
         with self.connect() as db:
-            rows = [(code, json.loads(data)) for code, data in db.execute('SELECT codigo, listado FROM compras WHERE pendiente=1 ORDER BY codigo')]
-        def priority(row):
-            title = ''.join(c for c in unicodedata.normalize('NFKD', str(row[1].get('nombre', '')).lower()) if not unicodedata.combining(c))
-            return (not any(term in title for term in ('pendon', 'roller')), row[0])
-        # Prioritize likely matches, but still fetch every other detail for item-only matches.
-        return sorted(rows, key=priority)
+            # Durable discovery order, independent of title or code. New title
+            # matches cannot jump ahead of older uninspected products after a
+            # quota interruption. Previously unseen details go before refreshes.
+            return [(code, json.loads(data)) for code, data in db.execute('''
+                SELECT codigo, listado FROM compras WHERE pendiente=1
+                ORDER BY CASE WHEN detalle IS NULL THEN 0 ELSE 1 END, rowid
+            ''')]
 
     def save_detail(self, code, detail):
         with self.connect() as db:
@@ -185,6 +185,22 @@ class Synchronizer:
         self.api = api or API(store)
         self.lock = threading.Lock()
 
+    def fetch_pending(self, processed=0, limit=None):
+        queue = self.store.pending()
+        if limit is not None:
+            queue = queue[:limit]
+        for code, row in queue:
+            if row.get('estado', {}).get('codigo') != 'publicada':
+                self.store.save_detail(code, row)
+            else:
+                detail = self.api.get(code=code)
+                if detail.get('codigo') != code:
+                    raise SourceError('El detalle no corresponde al código solicitado.')
+                self.store.save_detail(code, compact(detail))
+            processed += 1
+            self.store.set_meta(detalles_procesados_ciclo=processed, latido=iso(now()))
+        return processed
+
     def run(self):
         if not self.lock.acquire(blocking=False):
             return
@@ -200,6 +216,13 @@ class Synchronizer:
             self.store.set_meta(estado='sincronizando', ultimo_intento=iso(end), error='', fase='listado', paginas_leidas=0,
                                 paginas_totales='', registros_listados=0, detalles_procesados_ciclo=0, latido=iso(end))
             initial = meta.get('inicio_completado') != 'si' or meta.get('modelo_listado_version') != '2'
+            processed = 0
+            if not initial and self.store.pending():
+                # Reserve part of the available quota for unfinished item reads
+                # before listing new changes. Keep the cursor intact on failure.
+                self.store.set_meta(fase='retomando_items_pendientes')
+                processed = self.fetch_pending(limit=50)
+                self.store.set_meta(fase='listado')
             params = {'tamano_pagina': 50, 'ordenar_por': 'FechaUltimaModificacion'}
             if initial:
                 # Seed all open purchases nationwide, not only purchases with title matches.
@@ -230,17 +253,7 @@ class Synchronizer:
                 page += 1
             self.store.ingest(list(rows.values()), iso(end), bootstrap=initial)
             self.store.set_meta(fase='detalles', latido=iso(now()))
-            processed = 0
-            for code, row in self.store.pending():
-                if row.get('estado', {}).get('codigo') != 'publicada':
-                    self.store.save_detail(code, row)
-                    continue
-                detail = self.api.get(code=code)
-                if detail.get('codigo') != code:
-                    raise SourceError('El detalle no corresponde al código solicitado.')
-                self.store.save_detail(code, compact(detail))
-                processed += 1
-                self.store.set_meta(detalles_procesados_ciclo=processed, latido=iso(now()))
+            self.fetch_pending(processed=processed)
             self.store.set_meta(estado='actualizado', fase='reposo', ultima_sincronizacion=iso(now()), error='')
         except (SourceError, sqlite3.Error) as exc:
             self.store.set_meta(estado='pendiente', error=str(exc))

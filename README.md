@@ -143,7 +143,7 @@ La página usa UTC con una etiqueta explícita si Windows no dispone de la base 
 
 La web muestra cuántas coincidencias provienen de ítems y cuántas no mencionan el término en el título. Cada resultado señala dónde se encontró y muestra los ítems coincidentes. La búsqueda incluye `productos_solicitados[].nombre` y `.descripcion` incluso si título y descripción general no contienen los términos; no usa `q` para descartar compras antes de consultar sus productos. Una prueba específica verifica ese recorrido completo.
 
-Los títulos probables tienen prioridad para obtener resultados tempranos; después se consultan todos los demás detalles pendientes. Durante la carga inicial, las coincidencias exclusivas de ítems pueden aparecer más tarde. El contador de pendientes debe llegar a cero y la sincronización completarse antes de evaluar la búsqueda completa, dentro de los límites de cobertura documentados.
+Los detalles nunca descargados se revisan por orden persistente de descubrimiento, sin favorecer títulos que contengan palabras clave. Al retomar una carga incompleta, se revisan hasta 50 detalles pendientes antes de consultar nuevas páginas de cambios; después se continúa con la cola restante. Los detalles ya existentes que requieren actualización van después de los nunca descargados. Los reinicios conservan la cola y las compras nuevas con títulos coincidentes no saltan por delante de los ítems pendientes más antiguos. El contador de pendientes debe llegar a cero y la sincronización completarse antes de evaluar la búsqueda completa, dentro de los límites de cobertura documentados.
 
 Una desconexión del navegador durante el envío de HTML (`ConnectionResetError`, incluido WinError 10054) se maneja cerrando esa respuesta; no se imprime un traceback por ese cierre ni se detiene el trabajador de ChileCompra. Los otros errores de servidor no se silencian.
 
@@ -158,3 +158,10 @@ La hoja **Compras** también incluye una columna **Ítems** con nombre, descripc
 Después de actualizar el repositorio con `git pull`, abre la carpeta en el Explorador y haz doble clic en **Crear acceso directo.vbs**. Crea **Buscador de Pendones** en tu escritorio, usando la ubicación de Escritorio configurada en Windows. Si ya existe un acceso con ese nombre, pregunta antes de reemplazarlo. No necesita permisos de administrador, no copia el ticket ni modifica el inicio de Windows.
 
 Luego abre **Buscador de Pendones** desde el escritorio. Si el servidor ya responde como Buscador de Pendones en el puerto 8000, abre su página. Si no responde, inicia el programa y su ventana para pegar el ticket. También puedes abrir directamente **Iniciar buscador.bat** desde la carpeta del proyecto. La ventana de consola permanece abierta durante la ejecución: ciérrala cuando quieras detener el buscador. No se trata de un servicio permanente ni se evita la cuota de la API. Si Windows administra o bloquea scripts VBS, usa el archivo BAT; no es necesario desactivar protecciones del sistema. El lanzador Python se probó con casos de servidor presente y ausente; no se ejecutó la creación nativa del acceso directo de Windows desde Codex.
+
+
+### Corrección de revisión de compras sin palabras clave en el título
+
+Se eliminó la prioridad anterior basada en el título: con una cuota reducida podía retrasar las oportunidades que contienen «pendón» solo en un producto. Se verificó el recorrido listado → detalle sin término en el título → coincidencia exclusiva en la descripción de un ítem → fila en Excel. Las pruebas también comprueban reanudación antes de nuevas páginas, conservación del cursor ante error y orden de la cola al reiniciar.
+
+Actualizar el programa no descarga de inmediato los detalles que faltan. Si la API responde 429, se mantiene la pausa y la cola se retoma cuando corresponde; no se evade la cuota ni se garantiza cobertura completa con un acceso insuficiente.

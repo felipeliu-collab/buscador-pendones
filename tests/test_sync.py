@@ -83,6 +83,48 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(found['coincidencias_en_items'], 1)
         self.assertIn(('PRUEBA-SOLO-ITEM', None), api.calls)
 
+    def test_pending_details_do_not_prioritize_titles_and_survive_restart(self):
+        hidden = listing('Z-SIN-PALABRA')
+        titled = {**listing('A-CON-PALABRA'), 'nombre': 'Pendones'}
+        self.store.ingest([hidden, titled], iso(now()), bootstrap=True)
+        reopened = Store(self.store.path)
+        self.assertEqual([code for code, _ in reopened.pending()], ['Z-SIN-PALABRA', 'A-CON-PALABRA'])
+        reopened.save_detail('Z-SIN-PALABRA', detail('Z-SIN-PALABRA'))
+        hidden['nombre'] = 'Actualización sin palabras clave'
+        reopened.ingest([hidden], iso(now()))
+        self.assertEqual([code for code, _ in reopened.pending()], ['A-CON-PALABRA', 'Z-SIN-PALABRA'])
+
+    def test_resume_reads_hidden_item_before_listing_and_exports_it(self):
+        import io
+        from zipfile import ZipFile
+        from excel import export_xlsx
+        self.store.ingest([listing('PRUEBA-RETOMAR')], iso(now()), bootstrap=True)
+        doc = detail('PRUEBA-RETOMAR')
+        doc['nombre'] = 'Material de difusión'
+        doc['descripcion'] = 'Ver productos solicitados'
+        doc['productos_solicitados'] = [{'nombre': 'Impresión', 'descripcion': 'Pendón de mesa', 'cantidad': 2}]
+        api = FakeAPI([[]], {'PRUEBA-RETOMAR': doc})
+        Synchronizer(self.store, api).run()
+        self.assertEqual(api.calls[0], ('PRUEBA-RETOMAR', None))
+        self.assertIsNotNone(api.calls[1][1])
+        found = opportunities(self.store, TERMS, normalize)
+        self.assertEqual(found['coincidencias_items_sin_titulo'], 1)
+        self.assertEqual(found['resultados'][0]['id'], 'PRUEBA-RETOMAR')
+        with ZipFile(io.BytesIO(export_xlsx(found))) as book:
+            sheet = book.read('xl/worksheets/sheet1.xml').decode()
+            self.assertIn('PRUEBA-RETOMAR', sheet)
+            self.assertIn('Pendón de mesa', sheet)
+
+    def test_failure_resuming_items_does_not_advance_cursor_or_spend_on_listing(self):
+        cursor = iso(now())
+        self.store.ingest([listing('PRUEBA-LIMITE')], cursor, bootstrap=True)
+        api = FakeAPI([[]], {'PRUEBA-LIMITE': SourceError('Cuota agotada en prueba')})
+        Synchronizer(self.store, api).run()
+        self.assertEqual(api.calls, [('PRUEBA-LIMITE', None)])
+        self.assertEqual(self.store.metadata()['cursor'], cursor)
+        self.assertEqual(len(self.store.pending()), 1)
+        self.assertEqual(self.store.metadata()['estado'], 'pendiente')
+
     def test_incremental_does_not_filter_states_and_removes_closed_purchase(self):
         Synchronizer(self.store, FakeAPI([[listing('PRUEBA')]], {'PRUEBA': detail('PRUEBA')})).run()
         api = FakeAPI([[listing('PRUEBA', 'cancelada')]], {})
