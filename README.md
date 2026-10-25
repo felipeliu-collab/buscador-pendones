@@ -193,3 +193,9 @@ Los montos ausentes, negativos, no finitos o no interpretables y las fechas ambi
 ## Botón: segundo llamado bajo $500.000
 
 El botón **Segundo llamado · Menos de $500.000** está en la portada, la vista compatible y el panel de Windows. Abre `/segundo-llamado-500000`; permite descargar `/segundo-llamado-500000.xlsx` y consultar `/api/segundo-llamado-500000`. Exige presupuesto total informado menor a $500.000 CLP, llamado actual explícito 2, estado publicado y cierre futuro interpretable. No basta tener una fecha de segundo llamado programada. Utiliza la misma caché parcial y sus advertencias; no hace solicitudes nuevas a la API ni agrega automáticamente avisos de escritorio para este filtro. El botón pertenece al programa, no a la sección Recientes de ChatGPT/Codex.
+
+## Botón Pin o pines
+
+El botón **Pin o pines** está en la portada, la vista compatible y el panel de Windows. Abre `/pines`, con descarga `/pines.xlsx` (`pin_o_pines.xlsx`) y consulta local `/api/pines`. Busca palabras completas **pin** o **pines**, sin distinguir mayúsculas o tildes, en título O descripción O nombre/descripción de productos solicitados. No incluye por subcadena palabras como pintura, pincel o pinzas. La coincidencia es textual y puede tener distintos significados: revisa el contexto antes de ofertar.
+
+Comparte la caché oficial y sus límites; no consulta nuevamente la API al abrir la vista o descargar y no representa todas las compras mientras falten detalles. El Excel indica el filtro y dónde se encontró cada coincidencia. Los avisos actuales de escritorio siguen correspondiendo a pendones; no se agregan avisos de pines automáticamente.

@@ -29,6 +29,7 @@ ROOT = Path(__file__).parent
 MAX_BYTES = 10 * 1024 * 1024
 HOSTS = {"www.mercadopublico.cl", "api.mercadopublico.cl", "datos-abiertos.chilecompra.cl", "www.chilecompra.cl"}
 TERMS = re.compile(r"\b(?:pendon(?:es)?|rollers?|mini[\s-]*pendon(?:es)?)\b")
+PIN_TERMS = re.compile(r"\b(?:pin|pines)\b")
 
 
 def normalize(value):
@@ -277,10 +278,10 @@ class Handler(BaseHTTPRequestHandler):
             body += '</tbody></table></div>'
         return (body + '</main></body></html>').encode()
 
-    def monitor_page(self):
+    def monitor_page(self, matcher=TERMS, title='Buscador de Pendones', refresh_path='./monitor', download_path='./descargar.xlsx'):
         state = connection_status(self.store, self.worker)
         meta = state['sincronizacion']
-        data = opportunities(self.store, TERMS, normalize)
+        data = opportunities(self.store, matcher, normalize)
         def escape(value):
             return html.escape(str(value)) if value is not None else 'No informado'
         def local_time(value):
@@ -299,8 +300,10 @@ class Handler(BaseHTTPRequestHandler):
         rows += '<tr><th>Última sincronización completa</th><td>' + local_time(meta.get('ultima_sincronizacion')) + '</td></tr>'
         rows += '<tr><th>Próximo intento</th><td>' + ('Después de terminar este ciclo' if meta.get('estado') == 'sincronizando' else local_time(meta.get('reintentar_desde') or meta.get('proximo_intento'))) + '</td></tr>'
         purchases = self.result_rows(data['resultados'])
-        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Buscador de Pendones · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Buscador de Pendones</h1><p>Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.</p><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="./monitor">Actualizar ahora</a> · <a href="./menores-100000">Compras menores a $100.000</a> · <a class="download-button" href="./segundo-llamado-500000">Segundo llamado · Menos de $500.000</a> · <a href="./">Vista moderna</a> · <a href="./avisos">Avisos de nuevas coincidencias</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
-        document += rows + '</tbody></table><h2>Resultados disponibles</h2><p><a class="download-button" href="./descargar.xlsx">Descargar Excel</a></p><p>Exporta las coincidencias automáticas disponibles al descargar. Si la carga está incompleta, se indicará en la hoja Estado.</p><p>'
+        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>''' + escape(title) + ''' · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>''' + escape(title) + '''</h1><p>Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.</p><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="''' + escape(refresh_path) + '''">Actualizar ahora</a> · <a href="./monitor">Pendones</a> · <a class="download-button" href="./pines">Pin o pines</a> · <a href="./menores-100000">Compras menores a $100.000</a> · <a class="download-button" href="./segundo-llamado-500000">Segundo llamado · Menos de $500.000</a> · <a href="./">Vista moderna</a> · <a href="./avisos">Avisos de nuevas coincidencias</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
+        if matcher is PIN_TERMS:
+            document += '<p>Palabras completas: pin o pines. La coincidencia es textual; revisa el contexto. Los avisos de pantalla actuales siguen correspondiendo a pendones.</p>'
+        document += rows + '</tbody></table><h2>Resultados disponibles</h2><p><a class="download-button" href="' + escape(download_path) + '">Descargar Excel</a></p><p>Exporta las coincidencias automáticas disponibles al descargar. Si la carga está incompleta, se indicará en la hoja Estado.</p><p>'
         document += str(len(data['resultados'])) + ' coincidencias reales en la caché consultada. Durante la carga los resultados son parciales; cero coincidencias no acredita ausencia de oportunidades.</p><p>' + escape(data['cobertura']) + '</p>'
         document += '<p><strong>Coincidencias en ítems: ' + str(data['coincidencias_en_items']) + '. Con coincidencia en ítems y sin mención en el título: ' + str(data['coincidencias_items_sin_titulo']) + '.</strong> Detalles todavía pendientes de revisar: ' + str(data['pendientes']) + '.</p>'
         document += '<p>Compras sin ítems: ' + str(data['sin_items']) + '. Fechas ambiguas omitidas: ' + str(data['fecha_no_interpretable']) + '.</p>'
@@ -329,6 +332,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
+        if path in ('/pines', '/pines.xlsx', '/api/pines'):
+            if self.store is None:
+                return self.send(503, {'error': 'Almacenamiento no iniciado.'})
+            if path == '/pines':
+                return self.send(200, self.monitor_page(matcher=PIN_TERMS, title='Pin o pines', refresh_path='./pines', download_path='./pines.xlsx'), 'text/html; charset=utf-8')
+            data = opportunities(self.store, PIN_TERMS, normalize)
+            data['busqueda'] = 'Palabras completas pin o pines en título, descripción o ítems'
+            if path == '/api/pines':
+                return self.send(200, data)
+            return self.send(200, export_xlsx(data), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'pin_o_pines.xlsx')
         budget_routes = {
             '/menores-100000': (100000, None, 'compras_menores_100000.xlsx'),
             '/segundo-llamado-500000': (500000, 2, 'segundo_llamado_menores_500000.xlsx'),

@@ -207,6 +207,35 @@ class HTTPTests(unittest.TestCase):
                 with ZipFile(io.BytesIO(response.read())) as book:
                     self.assertIn('2 llamado menor 500000', book.read('xl/workbook.xml').decode())
 
+    def test_pin_button_page_and_excel_use_the_pin_filter_without_api_calls(self):
+        import io
+        from zipfile import ZipFile
+        previous = Handler.store
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                Handler.store = Store(Path(directory) / 'cache.sqlite3')
+                doc = {'codigo': 'PRUEBA-PIN', 'nombre': 'Material institucional', 'descripcion': 'Ver productos', 'estado': {'codigo': 'publicada'}, 'fechas': {'fecha_cierre': '2099-01-01T00:00:00Z'}, 'productos_solicitados': [{'nombre': 'Producto', 'descripcion': 'Pines de solapa', 'cantidad': 2}]}
+                Handler.store.ingest([doc], '2026-01-01T00:00:00Z', bootstrap=True)
+                Handler.store.save_detail('PRUEBA-PIN', doc)
+                with patch('sync.API.get', side_effect=AssertionError('Use cache only')):
+                    for path in ('/', '/monitor'):
+                        with urllib.request.urlopen(self.base + path) as response:
+                            self.assertIn('href="./pines"', response.read().decode())
+                    with urllib.request.urlopen(self.base + '/pines') as response:
+                        page = response.read().decode()
+                    self.assertIn('<h1>Pin o pines</h1>', page)
+                    self.assertIn('href="./pines.xlsx"', page)
+                    self.assertIn('PRUEBA-PIN', page)
+                    self.assertIn('Pines de solapa', page)
+                    with urllib.request.urlopen(self.base + '/api/pines') as response:
+                        self.assertEqual(json.load(response)['resultados'][0]['id'], 'PRUEBA-PIN')
+                    with urllib.request.urlopen(self.base + '/pines.xlsx') as response:
+                        self.assertIn('pin_o_pines.xlsx', response.headers['Content-Disposition'])
+                        with ZipFile(io.BytesIO(response.read())) as book:
+                            self.assertIn('Pines de solapa', book.read('xl/worksheets/sheet1.xml').decode())
+        finally:
+            Handler.store = previous
+
     def test_missing_windows_timezone_database_does_not_break_pages(self):
         Handler.store.set_meta(ultima_conexion_exitosa='2026-10-25T12:00:00Z', ultima_sincronizacion='2026-10-25T12:00:00Z')
         with patch('app.ZoneInfo', side_effect=ZoneInfoNotFoundError('America/Santiago')):

@@ -59,6 +59,7 @@ def export_xlsx(data):
     status = [
         ['Dato', 'Valor'], ['Exportado en UTC', datetime.now(timezone.utc).isoformat()],
         ['Fuente', data.get('fuente')], ['Cobertura', data.get('cobertura')],
+        ['Búsqueda', data.get('busqueda', 'Pendón, pendones, roller o mini pendón en título, descripción o ítems')],
         ['Alcance de la exportación', 'Solo coincidencias de la caché automática al descargar. No incluye la importación manual.'],
         ['Carga', 'Ciclo completado según el estado guardado; cobertura sujeta a la fuente.' if complete else 'PARCIAL: carga incompleta o no actualizada. No representa todas las oportunidades.'],
         ['Estado de sincronización', meta.get('estado', 'Sin iniciar')],
