@@ -83,10 +83,17 @@ def money(value):
     return '$' + text + ' CLP'
 
 
-def page(data):
+def page(data, route='/menores-100000'):
     esc = lambda v: html.escape(str(v)) if v is not None else 'No informado'
     meta = data['sincronizacion']
-    body = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Compras Ágiles menores a $100.000</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Compras Ágiles menores a $100.000</h1><p>De cualquier producto o servicio. Presupuesto total informado estrictamente menor a $100.000 CLP: las de exactamente $100.000 quedan fuera.</p><p><a href="./menores-100000">Actualizar vista</a> · <a href="./monitor">Buscador de Pendones</a></p><p><a class="download-button" href="./menores-100000.xlsx">Descargar Excel de compras menores a $100.000</a></p>'''
+    amount_label = money(data.get('limite_clp', str(LIMIT))).removesuffix(' CLP')
+    call = data.get('llamado_filtrado')
+    call_label = ' en segundo llamado' if call == 2 else ' en primer llamado' if call == 1 else ''
+    title = 'Compras Ágiles' + call_label + ' menores a ' + amount_label
+    body = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>' + esc(title) + '</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>' + esc(title) + '</h1>'
+    body += '<p>De cualquier producto o servicio. Presupuesto total informado estrictamente menor a ' + esc(amount_label) + ' CLP: las de exactamente ese monto quedan fuera.' + (' Solo se incluyen compras cuyo llamado actual informado es ' + str(call) + '.' if call else '') + '</p>'
+    body += '<p><a href=".' + esc(route) + '">Actualizar vista</a> · <a href="./monitor">Buscador de Pendones</a> · <a href="./menores-100000">Menores a $100.000</a> · <a href="./segundo-llamado-500000">Segundo llamado bajo $500.000</a></p>'
+    body += '<p><a class="download-button" href=".' + esc(route) + '.xlsx">Descargar Excel de compras' + esc(call_label) + ' menores a ' + esc(amount_label) + '</a></p>'
     body += '<aside><strong>' + str(len(data['resultados'])) + ' resultados en la caché disponible.</strong><p>Estado: ' + esc(meta.get('estado', 'iniciando')) + '. ' + esc(meta.get('error') or '') + '</p><p>' + esc(data['cobertura']) + '</p><p>Un monto de cero se muestra solo si la fuente lo informa; confirma el presupuesto en Mercado Público. Los avisos de pantalla actuales corresponden al buscador de pendones.</p></aside>'
     body += '<p>Compras publicadas sin monto CLP interpretable: ' + str(data['sin_monto_clp']) + '. Bajo el límite pero omitidas por fecha ambigua: ' + str(data['fechas_ambiguas']) + '.</p>'
     body += '<p>Se pueden mostrar compras con ítems pendientes si el listado permite verificar el monto y el cierre. Esta vista no hace consultas adicionales a la API. Los enlaces apuntan al recurso técnico de detalle, que requiere ticket; busca el ID en Mercado Público para ofertar.</p>'

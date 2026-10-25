@@ -299,7 +299,7 @@ class Handler(BaseHTTPRequestHandler):
         rows += '<tr><th>Última sincronización completa</th><td>' + local_time(meta.get('ultima_sincronizacion')) + '</td></tr>'
         rows += '<tr><th>Próximo intento</th><td>' + ('Después de terminar este ciclo' if meta.get('estado') == 'sincronizando' else local_time(meta.get('reintentar_desde') or meta.get('proximo_intento'))) + '</td></tr>'
         purchases = self.result_rows(data['resultados'])
-        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Buscador de Pendones · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Buscador de Pendones</h1><p>Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.</p><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="./monitor">Actualizar ahora</a> · <a href="./menores-100000">Compras menores a $100.000</a> · <a href="./">Vista moderna</a> · <a href="./avisos">Avisos de nuevas coincidencias</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
+        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Buscador de Pendones · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Buscador de Pendones</h1><p>Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.</p><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="./monitor">Actualizar ahora</a> · <a href="./menores-100000">Compras menores a $100.000</a> · <a class="download-button" href="./segundo-llamado-500000">Segundo llamado · Menos de $500.000</a> · <a href="./">Vista moderna</a> · <a href="./avisos">Avisos de nuevas coincidencias</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
         document += rows + '</tbody></table><h2>Resultados disponibles</h2><p><a class="download-button" href="./descargar.xlsx">Descargar Excel</a></p><p>Exporta las coincidencias automáticas disponibles al descargar. Si la carga está incompleta, se indicará en la hoja Estado.</p><p>'
         document += str(len(data['resultados'])) + ' coincidencias reales en la caché consultada. Durante la carga los resultados son parciales; cero coincidencias no acredita ausencia de oportunidades.</p><p>' + escape(data['cobertura']) + '</p>'
         document += '<p><strong>Coincidencias en ítems: ' + str(data['coincidencias_en_items']) + '. Con coincidencia en ítems y sin mención en el título: ' + str(data['coincidencias_items_sin_titulo']) + '.</strong> Detalles todavía pendientes de revisar: ' + str(data['pendientes']) + '.</p>'
@@ -329,15 +329,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
-        if path in ('/menores-100000', '/menores-100000.xlsx', '/api/menores-100000'):
+        budget_routes = {
+            '/menores-100000': (100000, None, 'compras_menores_100000.xlsx'),
+            '/segundo-llamado-500000': (500000, 2, 'segundo_llamado_menores_500000.xlsx'),
+        }
+        budget_route = path.removeprefix('/api') if path.startswith('/api/') else path.removesuffix('.xlsx')
+        if budget_route in budget_routes:
             if self.store is None:
                 return self.send(503, {'error': 'Almacenamiento no iniciado.'})
-            data = budget_opportunities(self.store)
-            if path == '/api/menores-100000':
+            limit, call, filename = budget_routes[budget_route]
+            data = budget_opportunities(self.store, limit=limit, call=call)
+            if path.startswith('/api/'):
                 return self.send(200, data)
             if path.endswith('.xlsx'):
-                return self.send(200, budget_excel(data), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'compras_menores_100000.xlsx')
-            return self.send(200, budget_page(data), 'text/html; charset=utf-8')
+                return self.send(200, budget_excel(data), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename)
+            return self.send(200, budget_page(data, route=budget_route), 'text/html; charset=utf-8')
         if path == '/avisos':
             if self.alerts is None:
                 return self.send(503, {'error': 'Centro de avisos no iniciado.'})

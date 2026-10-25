@@ -187,6 +187,26 @@ class HTTPTests(unittest.TestCase):
                 with ZipFile(io.BytesIO(response.read())) as book:
                     self.assertIn('Compras menores a 100000', book.read('xl/workbook.xml').decode())
 
+    def test_second_call_button_and_routes_use_correct_budget_and_excel(self):
+        import io
+        from zipfile import ZipFile
+        with patch('sync.API.get', side_effect=AssertionError('Use cache only')):
+            for path in ('/', '/monitor'):
+                with urllib.request.urlopen(self.base + path) as response:
+                    self.assertIn('href="./segundo-llamado-500000"', response.read().decode())
+            with urllib.request.urlopen(self.base + '/segundo-llamado-500000') as response:
+                page = response.read().decode()
+            self.assertIn('Compras Ágiles en segundo llamado menores a $500.000', page)
+            self.assertIn('href="./segundo-llamado-500000.xlsx"', page)
+            with urllib.request.urlopen(self.base + '/api/segundo-llamado-500000') as response:
+                data = json.load(response)
+            self.assertEqual(data['limite_clp'], '500000')
+            self.assertEqual(data['llamado_filtrado'], 2)
+            with urllib.request.urlopen(self.base + '/segundo-llamado-500000.xlsx') as response:
+                self.assertIn('segundo_llamado_menores_500000.xlsx', response.headers['Content-Disposition'])
+                with ZipFile(io.BytesIO(response.read())) as book:
+                    self.assertIn('2 llamado menor 500000', book.read('xl/workbook.xml').decode())
+
     def test_missing_windows_timezone_database_does_not_break_pages(self):
         Handler.store.set_meta(ultima_conexion_exitosa='2026-10-25T12:00:00Z', ultima_sincronizacion='2026-10-25T12:00:00Z')
         with patch('app.ZoneInfo', side_effect=ZoneInfoNotFoundError('America/Santiago')):

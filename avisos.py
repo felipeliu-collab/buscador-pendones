@@ -81,7 +81,7 @@ def desktop_alerts(center, port=8000):
         raise RuntimeError('No hay una pantalla gráfica disponible.') from None
     root.title('Buscador de Pendones · Avisos en pantalla')
     center.desktop_active = True
-    root.geometry('620x330')
+    root.geometry('620x380')
     tk.Label(root, text='Avisos de nuevas coincidencias', font=('Arial', 15, 'bold')).pack(pady=(18, 8))
     tk.Label(root, text='El programa debe permanecer abierto. No necesita tener abierta la página.', wraplength=570).pack()
     tk.Label(root, text='Una nueva detección puede ser una compra antigua cuyos ítems acaban de descargarse.', wraplength=570).pack(pady=8)
@@ -95,6 +95,7 @@ def desktop_alerts(center, port=8000):
     tk.Button(buttons, text='Abrir compras', command=lambda: webbrowser.open(f'http://127.0.0.1:{port}/monitor')).pack(side=tk.LEFT, padx=6)
     tk.Button(buttons, text='Menores a $100.000', command=lambda: webbrowser.open(f'http://127.0.0.1:{port}/menores-100000')).pack(side=tk.LEFT, padx=6)
     tk.Button(buttons, text='Ver historial de avisos', command=lambda: webbrowser.open(f'http://127.0.0.1:{port}/avisos')).pack(side=tk.LEFT, padx=6)
+    tk.Button(root, text='Segundo llamado · Menos de $500.000', command=lambda: webbrowser.open(f'http://127.0.0.1:{port}/segundo-llamado-500000')).pack(pady=6)
     popup = None
 
     def tick():
