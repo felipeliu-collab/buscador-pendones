@@ -1,0 +1,134 @@
+"""Fixtures sintéticas: no son oportunidades reales ni llamadas a ChileCompra."""
+import json
+import tempfile
+import unittest
+from datetime import timedelta
+from pathlib import Path
+from unittest.mock import patch
+
+from app import TERMS, normalize
+from sync import API, BASE, SourceError, Store, Synchronizer, iso, now, opportunities
+
+
+def listing(code, state='publicada'):
+    return {'codigo': code, 'nombre': 'Materiales institucionales', 'estado': {'codigo': state},
+            'fechas': {'fecha_cierre': iso(now() + timedelta(days=1))}}
+
+
+def detail(code):
+    return {**listing(code), 'productos_solicitados': [
+        {'nombre': 'Impresión', 'descripcion': 'Mini pendón roller', 'cantidad': 3, 'unidad_medida': 'EA'}],
+        'institucion': {'organismo_comprador': 'ORGANISMO SINTÉTICO'},
+        'presupuesto': {'monto_disponible': 12000, 'moneda': 'CLP'}}
+
+
+class FakeAPI:
+    def __init__(self, pages, details):
+        self.pages, self.details, self.calls = pages, details, []
+
+    def get(self, code=None, params=None):
+        self.calls.append((code, params))
+        if code:
+            value = self.details[code]
+            if isinstance(value, Exception):
+                raise value
+            return value
+        page = params['numero_pagina']
+        return {'items': self.pages[page - 1], 'paginacion': {'numero_pagina': page, 'total_paginas': len(self.pages)}}
+
+
+class SyncTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = Store(Path(self.temp.name) / 'compras.db')
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_bootstrap_paginates_nationwide_and_fetches_every_detail(self):
+        api = FakeAPI([[listing('PRUEBA-A')], [listing('PRUEBA-B')]],
+                      {'PRUEBA-A': detail('PRUEBA-A'), 'PRUEBA-B': detail('PRUEBA-B')})
+        Synchronizer(self.store, api).run()
+        self.assertEqual(self.store.metadata()['estado'], 'actualizado')
+        for code, params in api.calls:
+            if params:
+                self.assertNotIn('q', params)
+                self.assertNotIn('region', params)
+                self.assertEqual(params['estado'], 'publicada')
+                self.assertEqual(params['tamano_pagina'], 50)
+        found = opportunities(self.store, TERMS, normalize)
+        self.assertEqual(len(found['resultados']), 2)
+        self.assertEqual(found['resultados'][0]['cantidad'], '3 EA')
+        self.assertEqual(found['resultados'][0]['presupuesto'], '12000 CLP')
+        self.assertEqual(found['pendientes'], 0)
+
+    def test_incremental_does_not_filter_states_and_removes_closed_purchase(self):
+        Synchronizer(self.store, FakeAPI([[listing('PRUEBA')]], {'PRUEBA': detail('PRUEBA')})).run()
+        api = FakeAPI([[listing('PRUEBA', 'cancelada')]], {})
+        Synchronizer(self.store, api).run()
+        params = api.calls[0][1]
+        self.assertIn('cambio_desde', params)
+        self.assertIn('cambio_hasta', params)
+        self.assertNotIn('estado', params)
+        self.assertNotIn('publicado_desde', params)
+        self.assertEqual(opportunities(self.store, TERMS, normalize)['resultados'], [])
+
+    def test_detail_failure_is_queued_and_retry_does_not_lose_record(self):
+        api = FakeAPI([[listing('PRUEBA')]], {'PRUEBA': SourceError('Fallo sintético')})
+        Synchronizer(self.store, api).run()
+        self.assertEqual(self.store.metadata()['estado'], 'pendiente')
+        self.assertNotIn('ultima_sincronizacion', self.store.metadata())
+        self.assertEqual(len(self.store.pending()), 1)
+        Synchronizer(self.store, FakeAPI([[]], {'PRUEBA': detail('PRUEBA')})).run()
+        self.assertEqual(len(opportunities(self.store, TERMS, normalize)['resultados']), 1)
+
+    def test_bad_pagination_does_not_advance_cursor(self):
+        api = FakeAPI([[]], {})
+        with patch.object(api, 'get', return_value={'items': [], 'paginacion': {'total_paginas': 1, 'numero_pagina': 9}}):
+            Synchronizer(self.store, api).run()
+        self.assertNotIn('cursor', self.store.metadata())
+        self.assertEqual(self.store.metadata()['estado'], 'pendiente')
+
+    def test_expired_naive_dates_and_missing_items_are_explicit(self):
+        docs = [detail('EXPIRED'), detail('NAIVE'), detail('NOITEMS')]
+        docs[0]['fechas']['fecha_cierre'] = iso(now() - timedelta(seconds=1))
+        docs[1]['fechas']['fecha_cierre'] = '2030-01-01T12:00:00'
+        docs[2]['productos_solicitados'] = []
+        docs[2]['nombre'] = 'Pendones'
+        self.store.ingest(docs, iso(now()), bootstrap=True)
+        for doc in docs:
+            self.store.save_detail(doc['codigo'], doc)
+        data = opportunities(self.store, TERMS, normalize)
+        self.assertEqual([r['id'] for r in data['resultados']], ['NOITEMS'])
+        self.assertEqual(data['fecha_no_interpretable'], 1)
+        self.assertEqual(data['sin_items'], 1)
+        self.assertFalse(data['resultados'][0]['items_disponibles'])
+
+    def test_missing_ticket_does_not_call_network(self):
+        with patch.dict('os.environ', {}, clear=True), patch('sync.urllib.request.build_opener') as opener:
+            Synchronizer(self.store).run()
+            opener.assert_not_called()
+        self.assertIn('Falta CHILECOMPRA_TICKET', self.store.metadata()['error'])
+
+    def test_auth_header_official_path_and_429_pause(self):
+        import urllib.error
+        from email.message import Message
+        headers = Message()
+        headers['Retry-After'] = '90000'
+        error = urllib.error.HTTPError(BASE, 429, 'Too many requests', headers, None)
+        with patch.dict('os.environ', {'CHILECOMPRA_TICKET': 'SYNTHETIC_TEST_ONLY'}), patch('sync.urllib.request.build_opener') as opener:
+            opener.return_value.open.side_effect = error
+            with self.assertRaises(SourceError):
+                API(self.store).get(params={'estado': 'publicada'})
+            request = opener.return_value.open.call_args.args[0]
+            self.assertTrue(request.full_url.startswith(BASE + '?'))
+            self.assertEqual(request.get_header('Ticket'), 'SYNTHETIC_TEST_ONLY')
+            self.assertNotIn('SYNTHETIC_TEST_ONLY', request.full_url)
+        self.assertIn('reintentar_desde', self.store.metadata())
+        fake = FakeAPI([[]], {})
+        Synchronizer(self.store, fake).run()
+        self.assertEqual(fake.calls, [])
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,55 +1,73 @@
 # Buscador de Pendones
 
-Web en español para buscar **pendón, pendones, roller y mini pendón** (sin distinguir mayúsculas ni acentos) dentro de registros de Compras Ágiles, incluidas las descripciones y los ítems anidados que contenga el archivo consultado. Muestra ID, organismo, cantidad, presupuesto, cierre y enlace oficial, cuando esos campos están disponibles.
+Web en español que integra la **API oficial Compra Ágil v2 de ChileCompra** para buscar pendón, pendones, roller y mini pendón en nombres, descripciones y productos solicitados. Consulta sin filtro regional y muestra compras con estado `publicada` y cierre futuro con zona horaria explícita.
 
-**Estado: herramienta de búsqueda sobre importaciones oficiales; no es todavía un rastreador nacional automático.** No hay resultados precargados. No se ha verificado una fuente oficial que permita enumerar todas las Compras Ágiles y consultar todos sus ítems. No se promete cobertura nacional completa ni oportunidades vigentes. No se usa la API de licitaciones como sustituto de Compras Ágiles.
+**Conector implementado y probado con fixtures; integración real pendiente de ticket y acceso de red a `api2.mercadopublico.cl`. No hay oportunidades reales precargadas ni se ha validado todavía la cobertura nacional en producción.**
+
+## Fuente oficial verificada documentalmente
+
+- [Página oficial de la API y solicitud de ticket](https://www.chilecompra.cl/api/).
+- [Guía oficial Compra Ágil v2, mayo de 2026](https://www.chilecompra.cl/wp-content/uploads/2026/05/Documentacion_API_Compra_Agil-2-1.pdf): autenticación, endpoints, campos, filtros y paginación.
+- [Ejemplos oficiales](https://www.chilecompra.cl/wp-content/uploads/2026/05/Documentacion_API_Compra_Agil-3-1.pdf).
+- [Investigación y limitaciones](INVESTIGACION.md).
+
+Se descargaron y leyeron los documentos oficiales durante esta implementación. No se extrajeron endpoints privados de la aplicación web ni se usó la API de licitaciones como sustituto.
+
+## Obtener el ticket
+
+1. Visita [ChileCompra API](https://www.chilecompra.cl/api/) y pulsa **Pide tu ticket**.
+2. Acepta los términos e inicia sesión con **ClaveÚnica**, según la guía oficial.
+3. Completa los datos reales y selecciona **Solicitar ticket**. La guía indica que llega automáticamente por correo; revisa spam.
+4. Configura el secreto **CHILECOMPRA_TICKET** en los ajustes seguros del entorno, destinado a `api2.mercadopublico.cl`. No lo subas a GitHub, pegues en el chat ni guardes en archivos del repositorio. El servidor lo envía en el encabezado `ticket`, nunca al navegador.
+5. Permite el dominio `api2.mercadopublico.cl` en la política de salida y aplica la configuración. El dominio anterior `api.mercadopublico.cl` no sustituye a la API v2.
+
+El borrador del entorno incluye este requisito de secreto y el dominio. Guardar el borrador no inyecta automáticamente la clave ni aplica las reglas al proceso actual.
 
 ## Ejecutar
 
-Requiere Python 3.12 o superior. No necesita paquetes, claves, base de datos ni servicios externos para importar archivos.
+Python 3.12+, sin paquetes externos. Desde un checkout local o el entorno:
 
 ```bash
 cd /workspace/buscador-pendones
 python app.py --host 127.0.0.1 --port 8000
 ```
 
-En tu equipo, abre el navegador en el puerto 8000 del servidor local. En un entorno remoto usa únicamente el mecanismo de acceso autorizado por tu plataforma. La configuración predeterminada escucha solo en loopback. No exponer públicamente este servidor de desarrollo sin autenticación, límites de solicitudes y un servidor de producción.
+La web carga la caché automática sin CSV/JSON manuales. Si falta la clave, muestra **Falta CHILECOMPRA_TICKET** y no fabrica una búsqueda exitosa. Tras configurar o cambiar variables del proceso, reinicia el servidor. El ticket no tiene un campo en la página web.
 
-## Obtener y buscar datos
+La base SQLite se crea en `data/compras.sqlite3` (ignorada por Git). Puede cambiarse con `--data-dir`. Necesita almacenamiento persistente. No borres la base para resolver un fallo: conserva cursor y detalles pendientes. No guarda el ticket ni cotizaciones de proveedores.
 
-1. Obtén una exportación mediante mecanismos autorizados de [Datos Abiertos de ChileCompra](https://datos-abiertos.chilecompra.cl/) o [Mercado Público](https://www.mercadopublico.cl/). Respeta sus condiciones y permisos. Estos enlaces son portales de referencia, no endpoints de descarga verificados.
-2. En la web, introduce la URL oficial de procedencia y selecciona el CSV o JSON. La procedencia del archivo es declarada por el usuario: la aplicación no certifica su autenticidad.
-3. Si dispones de una URL oficial directa a un CSV o JSON público, puedes omitir el archivo. Se hará una única descarga HTTPS, sin navegar páginas, seguir redirecciones, sortear CAPTCHA ni intentar autenticación. No hay sondeo periódico, paginación ni descubrimiento automático de endpoints.
-4. Pulsa **Buscar pendones**. Se recorren todos los valores del registro, incluidos ítems anidados; no se aplica filtro regional. El alcance depende del archivo, no acredita que estén representadas todas las regiones.
+El servidor de desarrollo escucha solo en loopback. En tu equipo abre el puerto 8000 del servidor local; en una plataforma remota usa su mecanismo autorizado. Para funcionamiento permanente se necesita un despliegue que mantenga el proceso activo, almacenamiento persistente y configuración de producción con HTTPS y control de acceso. Una sesión temporal de Codex no garantiza ejecución 24/7.
 
-Dominios admitidos exactamente: `www.mercadopublico.cl`, `api.mercadopublico.cl`, `datos-abiertos.chilecompra.cl`, `www.chilecompra.cl`. No se admiten URLs con credenciales. TLS permanece verificado. Las políticas de red del entorno pueden impedir la descarga. No se almacenan los datos importados en disco.
+## Cómo funciona la revisión automática
 
-### Formato de importación
+- Al arrancar se programa un primer ciclo. Sin clave se detiene el ciclo con un aviso.
+- Carga inicial: lista `estado=publicada` sin `q` ni `region`, hasta completar todas las páginas, de hasta 50 registros. Usa un límite superior de publicación fijo para esa carga.
+- Obtiene el detalle de **cada compra abierta**, aunque su título no mencione pendones. Busca en `nombre`, `descripcion` y `productos_solicitados[].nombre/descripcion`.
+- El parámetro `q` oficial solo está documentado para nombre/descripción; por eso no se usa como prefiltro que pudiera omitir coincidencias exclusivas de los productos.
+- Guarda la caché y los detalles pendientes. Las cantidades corresponden a líneas coincidentes, sin sumar unidades distintas; presupuesto y moneda vienen del detalle.
+- Después de cada ciclo espera 3.600 segundos. Consulta los cambios desde el cursor persistido con cinco minutos de solapamiento y límite superior fijo. Incluye **todos los estados**, para retirar oportunidades cerradas o canceladas. Si un ciclo tarda, el período entre inicios será mayor a una hora.
+- No adelanta el cursor si falla la paginación. Si falla un detalle, queda pendiente para el próximo ciclo y no se muestra su versión anterior como actual.
+- Solo muestra compras cuyo detalle figure `publicada` y cuyo cierre con zona horaria sea futuro. Fechas sin zona o no interpretables se excluyen y contabilizan; no se asume una zona no documentada.
+- La página refresca la caché cada minuto; abrir varias pestañas no multiplica las consultas a ChileCompra. **Actualizar vista** no fuerza descargas a la API.
+- Las consultas son secuenciales. Hay un presupuesto local conservador de 9.000 solicitudes/día UTC por base de datos, no una afirmación de la cuota concedida. HTTP 429 pausa al menos 24 horas y respeta un `Retry-After` numérico mayor. No cambia tickets ni IP para eludir límites.
 
-El adaptador admite un array JSON o un objeto con `compras` o `records` como array; CSV UTF-8 con coma, punto y coma o tabulador y encabezados. **Este es el contrato de esta aplicación, no un esquema oficial afirmado de ChileCompra.** Si una exportación tiene otra estructura, debe prepararse un adaptador específico a partir de su documentación y una muestra autorizada; no se atribuyen equivalencias sin verificar.
+Un listado sin palabras clave + detalles puede consumir muchas solicitudes. Antes de prometer una carga inicial completa y actualización horaria se debe medir cuántas compras existen y la cuota real. La página general publica 10.000 solicitudes diarias; la guía v2 describe cuotas por tipo de ticket. Hay que confirmar la cuota y condiciones aplicables con ChileCompra si no bastan. No se garantiza que el presupuesto local coincida con el reinicio de cuota del servidor.
 
-| Campo | Uso |
-| --- | --- |
-| `id` | Obligatorio para mostrar una coincidencia; alias `codigo`, `codigo_compra`, `CodigoExterno` |
-| `tipo` | Obligatorio: `Compra Ágil` o `Compras Ágiles`; alias `modalidad`, `tipo_compra` |
-| `organismo` | Alias `comprador`, `institucion` |
-| `cantidad` | Valor total explícito de la fuente; no se suman unidades distintas de los ítems |
-| `presupuesto` | Alias `monto_estimado`; se muestra sin inferir moneda ni impuestos |
-| `fecha_cierre` | Alias `FechaCierre`; se conserva fecha y zona horaria de la fuente sin inferirlas |
-| `enlace` | Alias `url`, `link`; solo HTTPS de dominios oficiales admitidos |
-| `items` | Array u objeto con las descripciones y cantidades; alias `productos` |
-| Otros campos | También se buscan sus valores textuales, en cualquier profundidad |
+## Campos y enlaces
 
-Los registros sin modalidad explícita o de otra modalidad se excluyen y contabilizan. Las coincidencias sin ID se contabilizan pero no se muestran como compras identificadas. Los campos ausentes aparecen como **No informado**; jamás se reconstruyen montos, fechas o enlaces a partir del ID. Las filas no se deduplican: un CSV con una fila por ítem puede mostrar el mismo ID varias veces. No hay ordenamiento temporal ni filtro de cierre porque no se asume un formato o zona horaria uniforme.
+ID: `codigo`; organismo: `institucion.organismo_comprador`; presupuesto: `presupuesto.monto_disponible` o `presupuesto_estimado` con `moneda`; cierre: `fechas.fecha_cierre`; cantidades: `productos_solicitados[].cantidad` y `unidad_medida`.
 
-### Límites de cobertura
+El enlace apunta al **recurso de detalle de la API oficial documentado**, que requiere ticket. No se ha verificado un enlace de ficha web pública para cada compra: no se inventa uno. Abrir el enlace desde un navegador sin encabezado de autenticación puede devolver un error de acceso.
 
-- Si la fuente incluye solo títulos o encabezados, **no se pueden encontrar menciones que estén únicamente en ítems omitidos**. La interfaz señala registros sin ítems. La presencia de algunos ítems tampoco acredita que estén todos.
-- No se leen adjuntos PDF, imágenes, OCR ni páginas HTML.
-- Un error de acceso devuelve un error visible, no una lista vacía que aparente una búsqueda exitosa.
-- Cero coincidencias significa cero en los campos importados, no ausencia de compras en Chile.
-- Límite de solicitud/descarga: 10 MiB (el JSON que transporta un archivo también cuenta). Divide exportaciones mayores por mecanismos oficiales.
-- Para completar el objetivo nacional automático falta identificar y verificar una fuente oficial autorizada con enumeración, paginación y detalle de ítems, sus condiciones, credenciales si corresponden y cobertura. No solicitar claves en chat; usar configuración segura cuando exista un requisito comprobado.
+## Qué falta para funcionar con datos reales
+
+1. Ingresar el ticket oficial y confirmar sus permisos para Compra Ágil v2.
+2. Aplicar el acceso de red a `api2.mercadopublico.cl`. La consulta sin ticket desde el entorno obtuvo `Tunnel connection failed: 403 Forbidden` (proxy), no un 401 de la API; eso no prueba que el endpoint esté caído o el ticket sea inválido.
+3. Probar listado y detalle autenticados, confirmar el esquema y las zonas horarias, recorrer todas las páginas y medir cuotas/latencia.
+4. Completar la carga inicial y comparar compras e ítems con Mercado Público, especialmente una coincidencia presente solo en productos.
+5. Desplegar en un servicio continuo con disco persistente; observar al menos dos ciclos reales. Incorporar una reconciliación completa periódica y verificar el comportamiento de la paginación ante cambios concurrentes antes de afirmar cobertura exhaustiva. El cursor incremental por sí solo no demuestra completitud frente a omisiones de la fuente.
+
+Si la API no entrega todos los productos, la búsqueda no puede encontrar palabras solo en los productos omitidos; debe indicarse y solicitarse soporte oficial. Tampoco lee PDFs, imágenes ni adjuntos. Entre ciclos, los estados pueden cambiar. Cero resultados en una sincronización pendiente no significa ausencia de oportunidades en Chile.
 
 ## Probar
 
@@ -57,18 +75,14 @@ Los registros sin modalidad explícita o de otra modalidad se excluyen y contabi
 cd /workspace/buscador-pendones
 python -m unittest discover -s tests -v
 node --check static/app.js
-```
-
-Las pruebas usan datos **sintéticos**, identificados como `PRUEBA`, solo en memoria: no son oportunidades reales ni aparecen al abrir la web. Verifican búsquedas en ítems anidados, acentos, modalidad, campos ausentes, CSV, enlaces no oficiales, resolución privada y respuestas HTTP. No certifican acceso a una fuente nacional. El test HTTP inicia y cierra su propio servidor en un puerto libre.
-
-Comprobación del servidor iniciado:
-
-```bash
 curl --fail http://127.0.0.1:8000/api/health
+curl --fail http://127.0.0.1:8000/api/oportunidades
 ```
 
-Debe indicar `estado: ok` y `cobertura_nacional_verificada: false`. Para probar con datos reales, importa una exportación oficial autorizada y compara una compra y sus ítems con la fuente. Esta comparación no fue realizada durante la creación: los portales oficiales devolvieron bloqueo de red 403 desde el entorno.
+Los tests usan fixtures **sintéticas**, no resultados de compras reales. Cubren búsquedas en ítems, paginación nacional sin `q`, sincronización incremental, cancelaciones, detalles pendientes, fechas, falta de ticket y pausa por cuota. No acreditan que la API real ya esté operativa con este entorno.
 
-## Archivos
+## Importación opcional
 
-`app.py`: servidor y adaptador sin dependencias externas. `static/`: interfaz accesible en español y renderizado de texto sin HTML de los datos. `tests/`: pruebas del buscador y HTTP. No se requiere compilación. El servidor no persiste archivos, tokens ni resultados.
+La importación anterior sigue disponible como alternativa manual. No es necesaria para el modo automático. En esta modalidad, se indica una URL oficial de procedencia y se aporta un CSV/JSON, o se descarga una URL directa de datos públicos. La procedencia del archivo es declarada, no certificada.
+
+El JSON debe ser una lista o un objeto con array `compras` o `records`. CSV: UTF-8 con encabezados y separador coma, punto y coma o tabulador. Cada registro debe incluir `id` y `tipo: Compra Ágil`. Campos opcionales: `organismo`, `cantidad`, `presupuesto`, `fecha_cierre`, `enlace`, `items`. Las descripciones e ítems anidados se buscan recursivamente. Este es el contrato del importador, no un esquema oficial atribuido a ChileCompra. No acredita vigencia. Máximo 10 MiB, incluyendo la solicitud JSON que transporta el archivo.

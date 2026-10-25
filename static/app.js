@@ -24,7 +24,14 @@ form.addEventListener('submit', async event => {
     if (!response.ok) throw new Error(data.error || 'La consulta falló.');
     status.textContent = `${data.resultados.length} coincidencias en ${data.registros_leidos} registros. Excluidos por modalidad ausente o distinta de Compra Ágil: ${data.excluidos_por_modalidad}. Coincidencias omitidas por falta de ID: ${data.coincidencias_sin_id}. Consulta: ${new Date(data.consultado_en).toLocaleString('es-CL')}.`;
     coverage.textContent = `${data.cobertura} Fuente: ${data.fuente}`;
-    for (const result of data.resultados) {
+    render(data.resultados);
+  } catch (error) { status.textContent = `No se completó la búsqueda: ${error.message}`; }
+  finally { button.disabled = false; output.setAttribute('aria-busy', 'false'); }
+});
+
+function render(results) {
+  table.querySelector('tbody').replaceChildren();
+    for (const result of results) {
       const row = document.createElement('tr');
       for (const key of ['id', 'organismo', 'cantidad', 'presupuesto', 'fecha_cierre']) {
         const td = document.createElement('td');
@@ -34,7 +41,7 @@ form.addEventListener('submit', async event => {
       const linkCell = document.createElement('td');
       if (result.enlace) {
         const link = document.createElement('a');
-        link.href = result.enlace; link.textContent = 'Ver en fuente oficial';
+        link.href = result.enlace; link.textContent = result.enlace_requiere_ticket ? 'Detalle API (requiere ticket)' : 'Ver en fuente oficial';
         link.target = '_blank'; link.rel = 'noopener noreferrer'; linkCell.append(link);
       } else linkCell.textContent = 'No informado';
       row.append(linkCell);
@@ -50,7 +57,35 @@ form.addEventListener('submit', async event => {
       }
       row.append(itemsCell); table.querySelector('tbody').append(row);
     }
-    table.hidden = data.resultados.length === 0;
-  } catch (error) { status.textContent = `No se completó la búsqueda: ${error.message}`; }
-  finally { button.disabled = false; output.setAttribute('aria-busy', 'false'); }
-});
+    table.hidden = results.length === 0;
+}
+
+let manualMode = false;
+let loading = false;
+form.addEventListener('submit', () => { manualMode = true; });
+async function loadAutomatic() {
+  if (loading) return;
+  loading = true;
+  const autoStatus = document.querySelector('#automatic-status');
+  try {
+    const response = await fetch('/api/oportunidades');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Consulta fallida');
+    const sync = data.sincronizacion;
+    const last = sync.ultima_sincronizacion ? new Date(sync.ultima_sincronizacion).toLocaleString('es-CL') : 'ninguna completada';
+    const message = `Estado: ${sync.estado || 'iniciando'}. Última sincronización completada: ${last}. Detalles pendientes: ${data.pendientes}. ${sync.error || ''}`;
+    autoStatus.textContent = message;
+    if (!manualMode) {
+      status.textContent = `${data.resultados.length} coincidencias vigentes según la fuente. ${message} Compras abiertas sin ítems: ${data.sin_items}. Omitidas por fecha sin zona horaria o no interpretable: ${data.fecha_no_interpretable}. Si la sincronización no está completa o actualizada, los resultados son parciales o pueden estar desactualizados.`;
+      coverage.textContent = data.cobertura;
+      render(data.resultados);
+    }
+  } catch (error) {
+    autoStatus.textContent = `No se pudo comprobar el monitoreo: ${error.message}`;
+    if (!manualMode) { table.hidden = true; status.textContent = autoStatus.textContent; }
+  } finally { loading = false; }
+}
+document.querySelector('#refresh').addEventListener('click', () => { manualMode = false; loadAutomatic(); });
+loadAutomatic();
+// Refresh the cached view; the server, not browser tabs, schedules API traffic.
+setInterval(loadAutomatic, 60000);
