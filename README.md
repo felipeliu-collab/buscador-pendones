@@ -2,7 +2,7 @@
 
 Web en español que integra la **API oficial Compra Ágil v2 de ChileCompra** para buscar pendón, pendones, roller y mini pendón en nombres, descripciones y productos solicitados. Consulta sin filtro regional y muestra compras con estado `publicada` y cierre futuro con zona horaria explícita.
 
-**Conector implementado y probado con fixtures; integración real pendiente de ticket y acceso de red a `api2.mercadopublico.cl`. No hay oportunidades reales precargadas ni se ha validado todavía la cobertura nacional en producción.**
+**Listado y detalle autenticados verificados contra la API real el 25 de octubre de 2026 (HTTP 200, `success: OK`). La carga nacional completa y la ejecución horaria continua aún deben completarse y verificarse.** No se incluyen oportunidades ficticias ni datos reales de prueba en el repositorio.
 
 ## Fuente oficial verificada documentalmente
 
@@ -47,8 +47,8 @@ El servidor de desarrollo escucha solo en loopback. En tu equipo abre el puerto 
 - Guarda la caché y los detalles pendientes. Las cantidades corresponden a líneas coincidentes, sin sumar unidades distintas; presupuesto y moneda vienen del detalle.
 - Después de cada ciclo espera 3.600 segundos. Consulta los cambios desde el cursor persistido con cinco minutos de solapamiento y límite superior fijo. Incluye **todos los estados**, para retirar oportunidades cerradas o canceladas. Si un ciclo tarda, el período entre inicios será mayor a una hora.
 - No adelanta el cursor si falla la paginación. Si falla un detalle, queda pendiente para el próximo ciclo y no se muestra su versión anterior como actual.
-- Solo muestra compras cuyo detalle figure `publicada` y cuyo cierre con zona horaria sea futuro. Fechas sin zona o no interpretables se excluyen y contabilizan; no se asume una zona no documentada.
-- La página refresca la caché cada minuto; abrir varias pestañas no multiplica las consultas a ChileCompra. **Actualizar vista** no fuerza descargas a la API.
+- Solo muestra compras cuyo detalle figure `publicada` y cuyo cierre con zona horaria sea futuro. La API real entrega a veces el cierre del detalle sin zona; se usa el campo con zona explícita del llamado correspondiente del listado solo si coinciden exactamente el llamado y los valores de fecha/hora. Si no hay tal coincidencia, se excluye y contabiliza la fecha ambigua. No se asigna una zona supuesta.
+- La página refresca el estado y la caché cada 15 segundos; abrir varias pestañas no multiplica las consultas a ChileCompra. **Actualizar vista** no fuerza descargas a la API.
 - Las consultas son secuenciales. Hay un presupuesto local conservador de 9.000 solicitudes/día UTC por base de datos, no una afirmación de la cuota concedida. HTTP 429 pausa al menos 24 horas y respeta un `Retry-After` numérico mayor. No cambia tickets ni IP para eludir límites.
 
 Un listado sin palabras clave + detalles puede consumir muchas solicitudes. Antes de prometer una carga inicial completa y actualización horaria se debe medir cuántas compras existen y la cuota real. La página general publica 10.000 solicitudes diarias; la guía v2 describe cuotas por tipo de ticket. Hay que confirmar la cuota y condiciones aplicables con ChileCompra si no bastan. No se garantiza que el presupuesto local coincida con el reinicio de cuota del servidor.
@@ -59,15 +59,21 @@ ID: `codigo`; organismo: `institucion.organismo_comprador`; presupuesto: `presup
 
 El enlace apunta al **recurso de detalle de la API oficial documentado**, que requiere ticket. No se ha verificado un enlace de ficha web pública para cada compra: no se inventa uno. Abrir el enlace desde un navegador sin encabezado de autenticación puede devolver un error de acceso.
 
-## Qué falta para funcionar con datos reales
+## Conexión, diagnóstico y operación
 
-1. Ingresar el ticket oficial y confirmar sus permisos para Compra Ágil v2.
-2. Aplicar el acceso de red a `api2.mercadopublico.cl`. La consulta sin ticket desde el entorno obtuvo `Tunnel connection failed: 403 Forbidden` (proxy), no un 401 de la API; eso no prueba que el endpoint esté caído o el ticket sea inválido.
-3. Probar listado y detalle autenticados, confirmar el esquema y las zonas horarias, recorrer todas las páginas y medir cuotas/latencia.
-4. Completar la carga inicial y comparar compras e ítems con Mercado Público, especialmente una coincidencia presente solo en productos.
-5. Desplegar en un servicio continuo con disco persistente; observar al menos dos ciclos reales. Incorporar una reconciliación completa periódica y verificar el comportamiento de la paginación ante cambios concurrentes antes de afirmar cobertura exhaustiva. El cursor incremental por sí solo no demuestra completitud frente a omisiones de la fuente.
+La página muestra servidor, presencia del ticket (sin valor), conexión API y último HTTP, fecha de última conexión exitosa, última sincronización completa, progreso por páginas y detalles, próximo intento y error de diagnóstico. Un error de conexión no se representa como cero oportunidades. Los datos son parciales hasta completar la carga.
 
-Si la API no entrega todos los productos, la búsqueda no puede encontrar palabras solo en los productos omitidos; debe indicarse y solicitarse soporte oficial. Tampoco lee PDFs, imágenes ni adjuntos. Entre ciclos, los estados pueden cambiar. Cero resultados en una sincronización pendiente no significa ausencia de oportunidades en Chile.
+`GET /api/estado` informa estado del proceso y del trabajador, contadores y errores de transporte con el ticket redactado. No imprime headers ni respuestas remotas que puedan repetir credenciales. La página no se queda indefinidamente en «Comprobando»: una consulta tarda como máximo 15 segundos antes de mostrar un fallo. Si el alojamiento devuelve HTML en vez de la API JSON, indica que falta el backend. El servidor también incorpora un resumen al HTML para que exista información si JavaScript falla.
+
+**No basta abrir `static/index.html` o publicar los archivos en GitHub Pages.** Hay que acceder a la web servida por `python app.py` o desplegar el backend en un servicio que ejecute Python permanentemente. El secreto configurado en Codex no se transfiere a un alojamiento distinto: debe configurarse allí mediante su gestor seguro. Si no hay proceso escuchando, primero inicia el servidor. Guardar archivos en GitHub no inicia un servicio.
+
+Revisión real del 25 de octubre de 2026: al comenzar no había servidor en el puerto 8000 (`<urlopen error [Errno 111] Connection refused>`). Se inició, se reconoció el ticket existente y se verificaron listado y detalle con HTTP 200 y productos reales. Se conservó la base de datos. El aviso antiguo de ausencia de ticket se limpia al comenzar un nuevo ciclo. No se publica la credencial ni el contenido de las compras como fixtures.
+
+Una prueba inicial de conexión usó una página demasiado pequeña y la API devolvió HTTP 400: `tamano_pagina debe estar entre 10 y 50`. La prueba se corrigió a 10 y respondió HTTP 200. El sincronizador ya utiliza 50. Esta diferencia con el máximo documentado no se ocultó desactivando validaciones.
+
+Pendiente para prometer cobertura exhaustiva y actualización continua: terminar todos los detalles y revisar fechas ambiguas; medir volumen/cuota y dos ciclos reales; desplegar en un servicio permanente con disco persistente; añadir reconciliación completa periódica y comprobar paginación ante cambios concurrentes. Si un ciclo tarda más de una hora, el siguiente se inicia una hora después de terminar. La sesión temporal de Codex no garantiza disponibilidad 24/7.
+
+Si la fuente omite productos o adjuntos, no es posible encontrar términos contenidos solo en ellos. Las fechas y estados pueden cambiar entre ciclos. No hay una ficha web pública verificada: el enlace actual dirige al recurso de detalle de la API y exige ticket.
 
 ## Probar
 
@@ -76,6 +82,7 @@ cd /workspace/buscador-pendones
 python -m unittest discover -s tests -v
 node --check static/app.js
 curl --fail http://127.0.0.1:8000/api/health
+curl --fail http://127.0.0.1:8000/api/estado
 curl --fail http://127.0.0.1:8000/api/oportunidades
 ```
 

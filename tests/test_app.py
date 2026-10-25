@@ -1,5 +1,6 @@
 """Datos sintéticos de prueba: no representan compras reales."""
 import json
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -8,6 +9,8 @@ from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
 from app import Handler, download, official_url, search
+from sync import Store
+from pathlib import Path
 
 SOURCE = 'https://datos-abiertos.chilecompra.cl/'
 
@@ -62,6 +65,10 @@ class SearchTests(unittest.TestCase):
 class HTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.previous_store = Handler.store
+        cls.temp = tempfile.TemporaryDirectory()
+        Handler.store = Store(Path(cls.temp.name) / 'test.sqlite3')
+        Handler.store.set_meta(estado='pendiente', error='DIAGNÓSTICO SINTÉTICO', conexion='error_red_o_respuesta')
         cls.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -72,12 +79,26 @@ class HTTPTests(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.thread.join()
+        Handler.store = cls.previous_store
+        cls.temp.cleanup()
 
     def test_page_assets_and_health(self):
-        for path in ['/', '/app.js', '/style.css', '/api/health']:
+        for path in ['/', '/app.js', '/app.js?v=3', '/style.css', '/api/health', '/api/estado']:
             with urllib.request.urlopen(self.base + path) as response:
                 self.assertEqual(response.status, 200)
                 self.assertTrue(response.read())
+
+    def test_diagnostics_and_server_rendered_fallback(self):
+        with urllib.request.urlopen(self.base + '/api/estado') as response:
+            state = json.load(response)
+        self.assertEqual(state['servidor'], 'activo')
+        self.assertIsInstance(state['ticket_configurado'], bool)
+        self.assertEqual(state['sincronizacion']['error'], 'DIAGNÓSTICO SINTÉTICO')
+        with urllib.request.urlopen(self.base + '/') as response:
+            page = response.read().decode()
+        self.assertIn('Servidor activo', page)
+        self.assertIn('DIAGNÓSTICO SINTÉTICO', page)
+        self.assertNotIn('<!--SERVER_STATUS-->', page)
 
     def test_search_endpoint_exercises_nested_description(self):
         payload = {'fuente': SOURCE, 'contenido': json.dumps([{'id': 'PRUEBA-HTTP', 'tipo': 'Compra Ágil', 'items': [{'descripcion': 'pendón'}]}])}

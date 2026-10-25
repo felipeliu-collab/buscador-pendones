@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import TERMS, normalize
-from sync import API, BASE, SourceError, Store, Synchronizer, iso, now, opportunities
+from sync import API, BASE, SourceError, Store, Synchronizer, closing_time, connection_status, iso, now, opportunities
 
 
 def listing(code, state='publicada'):
@@ -128,6 +128,41 @@ class SyncTests(unittest.TestCase):
         fake = FakeAPI([[]], {})
         Synchronizer(self.store, fake).run()
         self.assertEqual(fake.calls, [])
+
+    def test_transport_error_is_exact_but_credential_is_redacted(self):
+        import urllib.error
+        secret = 'SYNTHETIC_TEST_SECRET'
+        with patch.dict('os.environ', {'CHILECOMPRA_TICKET': secret}), patch('sync.urllib.request.build_opener') as opener:
+            opener.return_value.open.side_effect = urllib.error.URLError('Tunnel connection failed: 403 Forbidden ' + secret)
+            with self.assertRaises(SourceError) as caught:
+                API(self.store).get()
+            self.assertIn('Tunnel connection failed: 403 Forbidden', str(caught.exception))
+            self.assertNotIn(secret, str(caught.exception))
+            state = connection_status(self.store)
+            self.assertTrue(state['ticket_configurado'])
+            self.assertNotIn(secret, json.dumps(state))
+            self.assertEqual(state['sincronizacion']['conexion'], 'error_red_o_respuesta')
+
+    def test_initial_error_cleared_and_progress_persisted(self):
+        self.store.set_meta(error='Falta CHILECOMPRA_TICKET. El monitoreo no está activo.')
+        Synchronizer(self.store, FakeAPI([[listing('PRUEBA')]], {'PRUEBA': detail('PRUEBA')})).run()
+        meta = self.store.metadata()
+        self.assertEqual(meta['error'], '')
+        self.assertEqual(meta['paginas_leidas'], '1')
+        self.assertEqual(meta['registros_listados'], '1')
+        self.assertEqual(meta['detalles_procesados_ciclo'], '1')
+        self.assertEqual(connection_status(self.store)['detalles_guardados'], 1)
+
+    def test_closing_uses_matching_explicit_call_date_not_guessed_timezone(self):
+        raw = '2030-01-01 16:00'
+        doc = {'fechas': {'fecha_cierre': raw}, 'convocatoria': {'estado_convocatoria': 1}}
+        listed = {'fechas': {'fecha_cierre_primer_llamado': '2030-01-01T16:00:00Z'}, 'convocatoria': {'estado_convocatoria': 1}}
+        self.assertEqual(iso(closing_time(doc, listed)), '2030-01-01T16:00:00+00:00')
+        listed['convocatoria']['estado_convocatoria'] = 2
+        self.assertIsNone(closing_time(doc, listed))
+        listed['convocatoria']['estado_convocatoria'] = 1
+        listed['fechas']['fecha_cierre_primer_llamado'] = '2030-01-01T20:00:00Z'
+        self.assertIsNone(closing_time(doc, listed))
 
 
 if __name__ == '__main__':

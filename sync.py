@@ -7,6 +7,7 @@ import os
 import sqlite3
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,6 +17,13 @@ from pathlib import Path
 BASE = 'https://api2.mercadopublico.cl/v2/compra-agil'
 INTERVAL = 3600
 MAX_DAILY = 9000  # Conservative local budget, not a claim about the assigned quota.
+
+
+def safe_error(value):
+    """Keep useful transport diagnostics without persisting the credential."""
+    secret = os.environ.get('CHILECOMPRA_TICKET')
+    text = str(value)
+    return text.replace(secret, '[TICKET OCULTO]')[:2000] if secret else text[:2000]
 
 
 def now():
@@ -94,10 +102,16 @@ class Store:
             db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', ('cursor', cursor))
             if bootstrap:
                 db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', ('inicio_completado', 'si'))
+                db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', ('modelo_listado_version', '2'))
 
     def pending(self):
         with self.connect() as db:
-            return [(code, json.loads(data)) for code, data in db.execute('SELECT codigo, listado FROM compras WHERE pendiente=1 ORDER BY codigo')]
+            rows = [(code, json.loads(data)) for code, data in db.execute('SELECT codigo, listado FROM compras WHERE pendiente=1 ORDER BY codigo')]
+        def priority(row):
+            title = ''.join(c for c in unicodedata.normalize('NFKD', str(row[1].get('nombre', '')).lower()) if not unicodedata.combining(c))
+            return (not any(term in title for term in ('pendon', 'roller')), row[0])
+        # Prioritize likely matches, but still fetch every other detail for item-only matches.
+        return sorted(rows, key=priority)
 
     def save_detail(self, code, detail):
         with self.connect() as db:
@@ -108,10 +122,15 @@ class Store:
             return [(json.loads(row), json.loads(detail) if detail else None, pending)
                     for row, detail, pending in db.execute('SELECT listado, detalle, pendiente FROM compras ORDER BY codigo')]
 
+    def counts(self):
+        with self.connect() as db:
+            total, details, pending = db.execute('SELECT count(*), count(detalle), coalesce(sum(pendiente), 0) FROM compras').fetchone()
+        return {'compras_guardadas': total, 'detalles_guardados': details, 'detalles_pendientes': pending}
+
 
 def compact(data):
     """Retain demand data only; supplier quotations and personal data are not cached."""
-    keys = ('codigo', 'nombre', 'descripcion', 'estado', 'fechas', 'institucion', 'montos', 'presupuesto', 'productos_solicitados', 'links')
+    keys = ('codigo', 'nombre', 'descripcion', 'estado', 'convocatoria', 'fechas', 'institucion', 'montos', 'presupuesto', 'productos_solicitados', 'links')
     return {key: data[key] for key in keys if key in data}
 
 
@@ -128,6 +147,7 @@ class API:
         if params:
             url += '?' + urllib.parse.urlencode(params)
         request = urllib.request.Request(url, headers={'ticket': ticket, 'Accept': 'application/json', 'User-Agent': 'BuscadorPendones/2.0'})
+        self.store.set_meta(ultimo_intento_conexion=iso(now()))
         try:
             with urllib.request.build_opener(SafeRedirect()).open(request, timeout=30) as response:
                 raw = response.read(10 * 1024 * 1024 + 1)
@@ -135,6 +155,9 @@ class API:
                     raise SourceError('Respuesta oficial demasiado grande; no se procesó parcialmente.')
             data = json.loads(raw)
         except urllib.error.HTTPError as exc:
+            # Only record transport status, never a remote body that might echo headers.
+            diagnostic = f'HTTP {exc.code}: {safe_error(exc.reason)}'
+            self.store.set_meta(conexion='error_http', http_status=exc.code, error_conexion=diagnostic)
             if exc.code == 429:
                 # Stop the entire cycle. Honor Retry-After and at least 24 h to avoid a daily-quota loop.
                 delay = 86400
@@ -143,11 +166,15 @@ class API:
                     delay = max(delay, int(retry))
                 self.store.set_meta(reintentar_desde=iso(now() + timedelta(seconds=delay)))
                 raise SourceError('API 429: cuota agotada. Consultas pausadas al menos 24 horas; revisar cuota asignada.') from None
-            raise SourceError(f'La API respondió HTTP {exc.code}. Revisar ticket, permisos y disponibilidad.') from None
-        except (urllib.error.URLError, OSError, ValueError):
-            raise SourceError('No fue posible obtener JSON de la API oficial. Revisar red y disponibilidad.') from None
+            raise SourceError(f'{diagnostic}. Revisar ticket, permisos y disponibilidad.') from None
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            diagnostic = f'{type(exc).__name__}: {safe_error(exc)}'
+            self.store.set_meta(conexion='error_red_o_respuesta', http_status='', error_conexion=diagnostic)
+            raise SourceError(diagnostic) from None
         if not isinstance(data, dict) or data.get('success') != 'OK' or not isinstance(data.get('payload'), dict):
+            self.store.set_meta(conexion='error_esquema', http_status=200, error_conexion='HTTP 200 con respuesta NOK o esquema inesperado.')
             raise SourceError('La API no entregó una respuesta exitosa con el esquema documentado.')
+        self.store.set_meta(conexion='conectada', http_status=200, ultima_conexion_exitosa=iso(now()), error_conexion='')
         time.sleep(0.25)  # Sequential, bounded traffic. No parallel detail flood.
         return data['payload']
 
@@ -167,10 +194,12 @@ class Synchronizer:
             if retry and retry > now():
                 return
             if not os.environ.get('CHILECOMPRA_TICKET') and isinstance(self.api, API):
+                self.store.set_meta(conexion='sin_ticket', error_conexion='CHILECOMPRA_TICKET no está disponible en este proceso.')
                 raise SourceError('Falta CHILECOMPRA_TICKET. El monitoreo no está activo.')
             end = now()
-            self.store.set_meta(estado='sincronizando', ultimo_intento=iso(end))
-            initial = meta.get('inicio_completado') != 'si'
+            self.store.set_meta(estado='sincronizando', ultimo_intento=iso(end), error='', fase='listado', paginas_leidas=0,
+                                paginas_totales='', registros_listados=0, detalles_procesados_ciclo=0, latido=iso(end))
+            initial = meta.get('inicio_completado') != 'si' or meta.get('modelo_listado_version') != '2'
             params = {'tamano_pagina': 50, 'ordenar_por': 'FechaUltimaModificacion'}
             if initial:
                 # Seed all open purchases nationwide, not only purchases with title matches.
@@ -195,10 +224,13 @@ class Synchronizer:
                     if not isinstance(row, dict) or not isinstance(row.get('codigo'), str) or not row['codigo']:
                         raise SourceError('Registro sin código: no se adelantó el cursor.')
                     rows[row['codigo']] = compact(row)
+                self.store.set_meta(paginas_leidas=page, paginas_totales=total, registros_listados=len(rows), latido=iso(now()))
                 if page >= total:
                     break
                 page += 1
             self.store.ingest(list(rows.values()), iso(end), bootstrap=initial)
+            self.store.set_meta(fase='detalles', latido=iso(now()))
+            processed = 0
             for code, row in self.store.pending():
                 if row.get('estado', {}).get('codigo') != 'publicada':
                     self.store.save_detail(code, row)
@@ -207,7 +239,9 @@ class Synchronizer:
                 if detail.get('codigo') != code:
                     raise SourceError('El detalle no corresponde al código solicitado.')
                 self.store.save_detail(code, compact(detail))
-            self.store.set_meta(estado='actualizado', ultima_sincronizacion=iso(now()), error='')
+                processed += 1
+                self.store.set_meta(detalles_procesados_ciclo=processed, latido=iso(now()))
+            self.store.set_meta(estado='actualizado', fase='reposo', ultima_sincronizacion=iso(now()), error='')
         except (SourceError, sqlite3.Error) as exc:
             self.store.set_meta(estado='pendiente', error=str(exc))
         except Exception:
@@ -220,10 +254,46 @@ class Synchronizer:
         def loop():
             while True:
                 self.run()
+                self.store.set_meta(proximo_intento=iso(now() + timedelta(seconds=INTERVAL)))
                 time.sleep(INTERVAL)
         thread = threading.Thread(target=loop, daemon=True, name='chilecompra-hourly')
         thread.start()
         return thread
+
+
+def connection_status(store, thread=None):
+    meta = store.metadata()
+    return {
+        'servidor': 'activo', 'ticket_configurado': bool(os.environ.get('CHILECOMPRA_TICKET')),
+        'trabajador_activo': thread.is_alive() if thread is not None else False,
+        'consultado_en': iso(now()), 'sincronizacion': meta, **store.counts(),
+    }
+
+
+def closing_time(detail, listed):
+    """Use explicit timezone data, including the matching current-call field in the list.
+
+    Live API: detail dates are local-looking strings with no zone, while list
+    fechas.fecha_cierre_{primer,segundo}_llamado can carry an explicit Z suffix.
+    We do not assign a guessed timezone to the unqualified string.
+    """
+    raw = detail.get('fechas', {}).get('fecha_cierre')
+    direct = timestamp(raw)
+    if direct:
+        return direct
+    try:
+        unqualified = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    call = detail.get('convocatoria', {}).get('estado_convocatoria')
+    field = {1: 'fecha_cierre_primer_llamado', 2: 'fecha_cierre_segundo_llamado'}.get(call)
+    if not field or listed.get('convocatoria', {}).get('estado_convocatoria') != call:
+        return None
+    candidate = timestamp(listed.get('fechas', {}).get(field))
+    # Require matching calendar values, not just a plausible future date.
+    if candidate and candidate.replace(tzinfo=None) == unqualified:
+        return candidate
+    return None
 
 
 def opportunities(store, match, normalize):
@@ -234,7 +304,7 @@ def opportunities(store, match, normalize):
         # Never present an older detail as current while its modification is pending.
         if waiting or not detail or detail.get('estado', {}).get('codigo') != 'publicada':
             continue
-        closing = timestamp(detail.get('fechas', {}).get('fecha_cierre'))
+        closing = closing_time(detail, listed)
         if closing is None:
             unknown_dates += 1
             continue
@@ -261,7 +331,7 @@ def opportunities(store, match, normalize):
             'id': code, 'organismo': (detail.get('institucion') or {}).get('organismo_comprador'),
             'cantidad': '; '.join(quantities) or None,
             'presupuesto': (str(amount) + ' ' + currency).strip() if amount is not None else None,
-            'fecha_cierre': detail['fechas']['fecha_cierre'],
+            'fecha_cierre': iso(closing),
             # This is the documented official detail resource, not an invented portal URL.
             'enlace': BASE + '/' + urllib.parse.quote(code, safe=''),
             'enlace_requiere_ticket': True,

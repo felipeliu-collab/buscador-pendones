@@ -46,3 +46,14 @@ No se obtuvieron registros reales. Por tanto, están **pendientes**: prueba aute
 La página general exige mecanismos documentados, datos reales al solicitar ticket, atribución a Dirección ChileCompra y cumplimiento de límites; publica 10.000 solicitudes/día y recomienda horario nocturno para descargas masivas. La guía v2 describe cuotas según tipo de ticket y errores 429. Esta diferencia debe aclararse con soporte si el volumen requerido excede el acceso concedido; no se asume una cuota ilimitada.
 
 Para soporte, la página de API indica el formulario de sugerencias del sitio. Se debe consultar allí sobre permisos v2, cuota, paginación bajo cambios concurrentes y completitud de productos si las pruebas reales muestran límites. No se enviaron mensajes ni formularios al organismo.
+
+
+## Actualización: prueba autenticada real
+
+El 25 de octubre de 2026, después de la configuración del secreto por el usuario, se verificó su presencia sin mostrar el valor. Internet funcionó (sitio de ChileCompra, HTTP 200). Listado autenticado de Compra Ágil v2 y un detalle devolvieron HTTP 200, `success: OK`, paginación y `productos_solicitados` reales. Esto reemplaza el bloqueo de red anterior como diagnóstico del estado actual.
+
+La prueba inicial con `tamano_pagina=1` recibió HTTP 400 con `tamano_pagina debe estar entre 10 y 50`. Con 10 funcionó; el sincronizador usa 50. El listado indicó aproximadamente 7.000 compras publicadas, un total dinámico que no es una promesa de cobertura ni un conteo de coincidencias.
+
+Se constató que el detalle puede entregar fechas como `2026-10-26 16:00`, sin zona horaria, mientras el listado entrega campos de cierre de llamado con sufijo Z. El adaptador usa el cierre explícito del llamado correspondiente solo cuando coincide con el cierre no cualificado del detalle; si difiere o falta, no adivina la zona y omite la compra con un contador visible.
+
+No se verificó aún una carga nacional completa, dos ciclos horarios ni la restauración del proceso en un despliegue permanente. Los documentos anteriores describen el estado observado en sus fechas; los errores pasados de proxy no significan un bloqueo persistente después de aplicar configuración.

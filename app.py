@@ -1,5 +1,6 @@
 """Buscador local de Compras Ágiles. Python 3.12+, sin dependencias externas."""
 import argparse
+import html
 import csv
 import io
 import ipaddress
@@ -14,7 +15,7 @@ import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from sync import Store, Synchronizer, opportunities
+from sync import Store, Synchronizer, connection_status, opportunities
 
 ROOT = Path(__file__).parent
 MAX_BYTES = 10 * 1024 * 1024
@@ -142,6 +143,7 @@ def download(url):
 
 class Handler(BaseHTTPRequestHandler):
     store = None
+    worker = None
     def send(self, status, body, content_type='application/json; charset=utf-8'):
         data = json.dumps(body, ensure_ascii=False).encode() if isinstance(body, dict) else body
         self.send_response(status)
@@ -154,18 +156,31 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        path = urllib.parse.urlsplit(self.path).path
         routes = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
-        if self.path == '/api/health':
+        if path == '/api/health':
             return self.send(200, {'estado': 'ok', 'modo': 'api_oficial_v2', 'cobertura_nacional_verificada': False,
                                    'ticket_configurado': bool(os.environ.get('CHILECOMPRA_TICKET'))})
-        if self.path == '/api/oportunidades':
+        if path == '/api/estado':
+            if self.store is None:
+                return self.send(503, {'error': 'Almacenamiento no iniciado.'})
+            return self.send(200, connection_status(self.store, self.worker))
+        if path == '/api/oportunidades':
             if self.store is None:
                 return self.send(503, {'error': 'Almacenamiento de sincronización no iniciado.'})
             return self.send(200, opportunities(self.store, TERMS, normalize))
-        if self.path not in routes:
+        if path not in routes:
             return self.send(404, {'error': 'No encontrado'})
-        name, mime = routes[self.path]
-        self.send(200, (ROOT / 'static' / name).read_bytes(), mime)
+        name, mime = routes[path]
+        body = (ROOT / 'static' / name).read_bytes()
+        if path == '/' and self.store:
+            meta = self.store.metadata()
+            summary = ('Servidor activo. Ticket: ' + ('configurado' if os.environ.get('CHILECOMPRA_TICKET') else 'ausente')
+                       + '. Estado: ' + meta.get('estado', 'iniciando')
+                       + '. Última sincronización completada: ' + meta.get('ultima_sincronizacion', 'ninguna')
+                       + '. ' + meta.get('error', ''))
+            body = body.replace(b'<!--SERVER_STATUS-->', html.escape(summary).encode())
+        self.send(200, body, mime)
 
     def do_POST(self):
         if self.path != '/api/buscar':
@@ -205,6 +220,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     Handler.store = Store(Path(args.data_dir) / 'compras.sqlite3')
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    Synchronizer(Handler.store).start()
+    Handler.worker = Synchronizer(Handler.store).start()
     print(f'Buscador de Pendones escuchando en {args.host}:{args.port}', flush=True)
     server.serve_forever()

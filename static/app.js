@@ -1,5 +1,5 @@
 const form = document.querySelector('#search');
-const status = document.querySelector('#status');
+const resultStatus = document.querySelector('#status');
 const table = document.querySelector('#results');
 const coverage = document.querySelector('#coverage');
 const output = document.querySelector('#output');
@@ -11,7 +11,7 @@ form.addEventListener('submit', async event => {
   table.hidden = true;
   table.querySelector('tbody').replaceChildren();
   coverage.textContent = '';
-  status.textContent = 'Consultando y buscando en los datos…';
+  resultStatus.textContent = 'Consultando y buscando en los datos…';
   try {
     const payload = {fuente: document.querySelector('#source').value};
     const file = document.querySelector('#file').files[0];
@@ -19,13 +19,13 @@ form.addEventListener('submit', async event => {
       if (file.size > 10 * 1024 * 1024) throw new Error('El archivo supera 10 MiB.');
       payload.contenido = await file.text();
     }
-    const response = await fetch('/api/buscar', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    const response = await fetch(new URL('api/buscar', document.baseURI), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'La consulta falló.');
-    status.textContent = `${data.resultados.length} coincidencias en ${data.registros_leidos} registros. Excluidos por modalidad ausente o distinta de Compra Ágil: ${data.excluidos_por_modalidad}. Coincidencias omitidas por falta de ID: ${data.coincidencias_sin_id}. Consulta: ${new Date(data.consultado_en).toLocaleString('es-CL')}.`;
+    resultStatus.textContent = `${data.resultados.length} coincidencias en ${data.registros_leidos} registros. Excluidos por modalidad ausente o distinta de Compra Ágil: ${data.excluidos_por_modalidad}. Coincidencias omitidas por falta de ID: ${data.coincidencias_sin_id}. Consulta: ${new Date(data.consultado_en).toLocaleString('es-CL')}.`;
     coverage.textContent = `${data.cobertura} Fuente: ${data.fuente}`;
     render(data.resultados);
-  } catch (error) { status.textContent = `No se completó la búsqueda: ${error.message}`; }
+  } catch (error) { resultStatus.textContent = `No se completó la búsqueda: ${error.message}`; }
   finally { button.disabled = false; output.setAttribute('aria-busy', 'false'); }
 });
 
@@ -63,29 +63,52 @@ function render(results) {
 let manualMode = false;
 let loading = false;
 form.addEventListener('submit', () => { manualMode = true; });
+async function fetchJSON(path) {
+  const response = await fetch(new URL(path, document.baseURI), {signal: AbortSignal.timeout(15000), cache: 'no-store'});
+  if (!(response.headers.get('content-type') || '').includes('application/json')) {
+    throw new Error(`HTTP ${response.status}: el sitio no devuelve la API JSON del servidor Python. Un alojamiento estático como GitHub Pages no ejecuta la aplicación.`);
+  }
+  const data = await response.json();
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${data.error || 'consulta fallida'}`);
+  return data;
+}
+function showTime(value) {
+  return value ? new Date(value).toLocaleString('es-CL', {timeZone: 'America/Santiago'}) + ' (Chile)' : 'Ninguna registrada';
+}
+function setText(id, value) { document.getElementById(id).textContent = value; }
 async function loadAutomatic() {
   if (loading) return;
   loading = true;
   const autoStatus = document.querySelector('#automatic-status');
   try {
-    const response = await fetch('/api/oportunidades');
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Consulta fallida');
-    const sync = data.sincronizacion;
-    const last = sync.ultima_sincronizacion ? new Date(sync.ultima_sincronizacion).toLocaleString('es-CL') : 'ninguna completada';
-    const message = `Estado: ${sync.estado || 'iniciando'}. Última sincronización completada: ${last}. Detalles pendientes: ${data.pendientes}. ${sync.error || ''}`;
+    const state = await fetchJSON('api/estado');
+    const sync = state.sincronizacion;
+    setText('server-state', state.servidor === 'activo' ? 'Activo · respuesta recibida' : 'No confirmado');
+    setText('ticket-state', state.ticket_configurado ? 'Configurado en el proceso (valor oculto)' : 'Ausente en el proceso');
+    setText('connection-state', `${sync.conexion || 'Todavía sin respuesta de la API'}${sync.http_status ? ' · HTTP ' + sync.http_status : ''}`);
+    setText('last-connection', showTime(sync.ultima_conexion_exitosa));
+    setText('last-sync', showTime(sync.ultima_sincronizacion));
+    setText('sync-progress', `${sync.estado || 'iniciando'} · trabajador ${state.trabajador_activo ? 'activo' : 'detenido'} · fase ${sync.fase || 'sin iniciar'} · páginas ${sync.paginas_leidas || 0}/${sync.paginas_totales || '?'} · registros listados ${sync.registros_listados || 0} · detalles guardados ${state.detalles_guardados} · pendientes ${state.detalles_pendientes}`);
+    setText('next-sync', sync.estado === 'sincronizando' ? 'Al terminar este ciclo se programará el siguiente' : showTime(sync.reintentar_desde || sync.proximo_intento));
+    setText('connection-error', sync.error_conexion || sync.error || 'Ninguno registrado');
+    const message = `Estado: ${sync.estado || 'iniciando'}. Última sincronización completada: ${showTime(sync.ultima_sincronizacion)}. ${sync.error || ''}`;
     autoStatus.textContent = message;
+    autoStatus.dataset.state = sync.error ? 'error' : sync.estado === 'actualizado' ? 'ok' : 'pending';
+    const data = await fetchJSON('api/oportunidades');
     if (!manualMode) {
-      status.textContent = `${data.resultados.length} coincidencias vigentes según la fuente. ${message} Compras abiertas sin ítems: ${data.sin_items}. Omitidas por fecha sin zona horaria o no interpretable: ${data.fecha_no_interpretable}. Si la sincronización no está completa o actualizada, los resultados son parciales o pueden estar desactualizados.`;
+      resultStatus.textContent = `${data.resultados.length} coincidencias en la caché actual. ${data.pendientes} detalles pendientes; ${data.sin_items} compras abiertas sin ítems; ${data.fecha_no_interpretable} omitidas por fecha ambigua. ${sync.ultima_sincronizacion ? '' : 'Aún no se ha completado la carga inicial.'} Los resultados son parciales durante la carga y pueden cambiar entre ciclos.`;
       coverage.textContent = data.cobertura;
       render(data.resultados);
     }
   } catch (error) {
-    autoStatus.textContent = `No se pudo comprobar el monitoreo: ${error.message}`;
-    if (!manualMode) { table.hidden = true; status.textContent = autoStatus.textContent; }
+    const message = error.name === 'TimeoutError' ? 'El servidor no respondió en 15 segundos.' : error.message;
+    autoStatus.textContent = `No se pudo actualizar el estado o los resultados: ${message}`;
+    autoStatus.dataset.state = 'error';
+    setText('server-state', 'No se pudo completar la consulta; los indicadores previos pueden estar desactualizados');
+    if (!manualMode) { table.hidden = true; resultStatus.textContent = autoStatus.textContent; }
   } finally { loading = false; }
 }
 document.querySelector('#refresh').addEventListener('click', () => { manualMode = false; loadAutomatic(); });
 loadAutomatic();
 // Refresh the cached view; the server, not browser tabs, schedules API traffic.
-setInterval(loadAutomatic, 60000);
+setInterval(loadAutomatic, 15000);
