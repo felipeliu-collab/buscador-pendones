@@ -62,6 +62,21 @@ class BudgetTests(unittest.TestCase):
         self.store.ingest([changed], iso(now()))
         self.assertEqual(budget_opportunities(self.store)['resultados'], [])
 
+    def test_second_call_below_500000_is_explicit_and_strict(self):
+        for code, value, call in [('SEGUNDO', 499999, 2), ('IGUAL', 500000, 2), ('PRIMERO', 200000, 1), ('DESCONOCIDO', 100000, None)]:
+            row = self.put(code, value)
+            row['convocatoria'] = {'estado_convocatoria': call}
+            # A second-call deadline alone does not establish a second call.
+            row['fechas']['fecha_cierre_segundo_llamado'] = '2099-02-01T00:00:00Z'
+            self.store.ingest([row], iso(now()))
+        data = budget_opportunities(self.store, limit=500000, call=2)
+        self.assertEqual([r['id'] for r in data['resultados']], ['SEGUNDO'])
+        self.assertEqual(data['resultados'][0]['llamado'], 2)
+        with ZipFile(io.BytesIO(export(data))) as book:
+            self.assertIn('2 llamado menor 500000', book.read('xl/workbook.xml').decode())
+            self.assertIn('500.000', book.read('xl/worksheets/sheet2.xml').decode())
+            self.assertIn('Llamado actual', book.read('xl/worksheets/sheet1.xml').decode())
+
     def test_page_and_excel_disclose_partial_data_and_use_safe_text(self):
         row = self.put('ARCHIVO', 60000)
         row['nombre'] = '<script>alert(1)</script>'

@@ -29,18 +29,26 @@ def amount_clp(record):
     return result if result.is_finite() and result >= 0 else None
 
 
-def budget_opportunities(store):
+def budget_opportunities(store, limit=LIMIT, call=None):
+    limit = Decimal(str(limit))
+    if not limit.is_finite() or limit <= 0:
+        raise ValueError('El límite debe ser un monto positivo en CLP.')
+    if call is not None and (type(call) is not int or call not in (1, 2)):
+        raise ValueError('El llamado debe ser 1 o 2.')
     results, missing_amount, ambiguous_date = [], 0, 0
     snapshot = store.snapshot()
     for listed, detail, pending in snapshot:
         record = detail if detail and not pending else listed
         if (record.get('estado') or {}).get('codigo') != 'publicada':
             continue
+        current_call = (record.get('convocatoria') or {}).get('estado_convocatoria')
+        if call is not None and current_call != call:
+            continue
         amount = amount_clp(record)
         if amount is None:
             missing_amount += 1
             continue
-        if amount >= LIMIT:
+        if amount >= limit:
             continue
         closing = closing_time(record, listed)
         if closing is None:
@@ -53,6 +61,7 @@ def budget_opportunities(store):
             'descripcion': record.get('descripcion'),
             'organismo': (record.get('institucion') or {}).get('organismo_comprador'),
             'presupuesto_clp': str(amount), 'fecha_cierre': iso(closing),
+            'llamado': current_call,
             'detalle_pendiente': bool(pending or not detail),
             'items': record.get('productos_solicitados') or [],
             'enlace': BASE + '/' + quote(record['codigo'], safe=''),
@@ -62,6 +71,7 @@ def budget_opportunities(store):
         'resultados': results, 'sincronizacion': store.metadata(), 'fuente': BASE,
         'listado_guardado': len(snapshot), 'sin_monto_clp': missing_amount,
         'fechas_ambiguas': ambiguous_date,
+        'limite_clp': str(limit), 'llamado_filtrado': call,
         'cobertura': 'Solo el listado y los detalles oficiales ya descargados. No se garantiza cobertura nacional completa ni estado actualizado si la sincronización está pendiente. Se usa el presupuesto total informado en CLP o su conversión oficial a CLP; no se calculan tipos de cambio ni impuestos.',
     }
 
@@ -87,13 +97,17 @@ def page(data):
 
 
 def export(data):
-    rows = [['ID', 'Título', 'Organismo', 'Presupuesto total CLP', 'Cierre informado', 'Detalle pendiente', 'Descripción', 'Enlace API (requiere ticket)']]
+    rows = [['ID', 'Título', 'Organismo', 'Presupuesto total CLP', 'Cierre informado', 'Detalle pendiente', 'Descripción', 'Enlace API (requiere ticket)', 'Llamado actual']]
     for row in data['resultados']:
-        rows.append([row['id'], row['titulo'], row['organismo'], row['presupuesto_clp'], row['fecha_cierre'], 'Sí' if row['detalle_pendiente'] else 'No', row['descripcion'], row['enlace']])
+        rows.append([row['id'], row['titulo'], row['organismo'], row['presupuesto_clp'], row['fecha_cierre'], 'Sí' if row['detalle_pendiente'] else 'No', row['descripcion'], row['enlace'], row.get('llamado')])
     meta = data['sincronizacion']
-    status = [['Dato', 'Valor'], ['Filtro', 'Presupuesto total informado menor a 100.000 CLP; no es precio unitario.'],
+    limit = data.get('limite_clp', str(LIMIT))
+    call = data.get('llamado_filtrado')
+    status = [['Dato', 'Valor'], ['Filtro', 'Presupuesto total informado menor a ' + money(limit) + '; no es precio unitario.'],
+              ['Llamado requerido', call if call is not None else 'Cualquier llamado informado'],
               ['Exportado en UTC', iso(now())], ['Fuente', data['fuente']], ['Cobertura', data['cobertura']],
               ['Estado de sincronización', meta.get('estado')], ['Última sincronización completa', meta.get('ultima_sincronizacion')],
               ['Compras exportadas', len(data['resultados'])], ['Sin monto CLP interpretable', data['sin_monto_clp']],
               ['Fechas ambiguas omitidas', data['fechas_ambiguas']], ['Advertencia', 'Caché parcial. Confirma estado, presupuesto, impuestos y requisitos en Mercado Público antes de ofertar.']]
-    return workbook([('Compras menores a 100000', rows), ('Estado', status)])
+    name = f'{call} llamado menor {limit}' if call else f'Compras menores a {limit}'
+    return workbook([(name[:31], rows), ('Estado', status)])

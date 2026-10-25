@@ -17,3 +17,9 @@ Incluye las 37 coincidencias disponibles al exportar, sus ítems y las columnas 
 [Descargar Excel de compras menores a $100.000](https://github.com/felipeliu-collab/buscador-pendones/raw/refs/heads/main/descargas/compras_menores_100000_PARCIAL_2026-10-25.xlsx)
 
 Exportación estática del 25 de octubre de 2026 con 252 resultados de la caché oficial disponible, de cualquier producto o servicio. El presupuesto total informado es estrictamente menor a $100.000 CLP; las de exactamente ese monto quedan fuera. Entre esos resultados, 210 tienen detalles pendientes: el filtro se pudo aplicar con el monto y el cierre del listado. No contiene el ticket ni se realizaron nuevas consultas. La hoja Estado explica que la base es parcial y que deben confirmarse vigencia, presupuesto y requisitos en Mercado Público antes de ofertar.
+
+## Segundo llamado, presupuesto menor a $500.000 CLP
+
+[Descargar Excel de segundo llamado bajo $500.000](https://github.com/felipeliu-collab/buscador-pendones/raw/refs/heads/main/descargas/compras_agiles_segundo_llamado_menos_500000_PARCIAL_2026-10-25.xlsx)
+
+Exportación estática y parcial del 25 de octubre de 2026 con 180 resultados del listado oficial guardado. Se exige estado publicado, cierre futuro interpretable, presupuesto total informado estrictamente menor a $500.000 CLP y `convocatoria.estado_convocatoria=2` explícito. Tener una fecha de segundo llamado no basta para incluirse. Hay 145 resultados con detalles pendientes. No se hicieron nuevas consultas a la API ni se incluyó el ticket. Confirma vigencia y requisitos en Mercado Público antes de ofertar.
