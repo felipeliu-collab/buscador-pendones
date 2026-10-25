@@ -15,7 +15,8 @@ import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from sync import Store, Synchronizer, connection_status, opportunities
+from zoneinfo import ZoneInfo
+from sync import Store, Synchronizer, connection_status, opportunities, timestamp
 
 ROOT = Path(__file__).parent
 MAX_BYTES = 10 * 1024 * 1024
@@ -144,6 +145,41 @@ def download(url):
 class Handler(BaseHTTPRequestHandler):
     store = None
     worker = None
+
+    def monitor_page(self):
+        state = connection_status(self.store, self.worker)
+        meta = state['sincronizacion']
+        data = opportunities(self.store, TERMS, normalize)
+        def escape(value):
+            return html.escape(str(value)) if value is not None else 'No informado'
+        def local_time(value):
+            parsed = timestamp(value)
+            return escape(parsed.astimezone(ZoneInfo('America/Santiago')).strftime('%d/%m/%Y %H:%M:%S %Z')) if parsed else 'Ninguna registrada'
+        fields = {
+            'Servidor': 'Activo',
+            'Ticket': 'Configurado (valor oculto)' if state['ticket_configurado'] else 'Ausente en el proceso',
+            'Trabajador': 'Activo' if state['trabajador_activo'] else 'Detenido',
+            'Conexión API': meta.get('conexion', 'Sin comprobar') + (' · HTTP ' + meta['http_status'] if meta.get('http_status') else ''),
+            'Estado': meta.get('estado', 'iniciando'),
+            'Progreso': f"Fase {meta.get('fase', 'sin iniciar')}; páginas {meta.get('paginas_leidas', '0')}/{meta.get('paginas_totales') or '?'}; detalles guardados {state['detalles_guardados']}; pendientes {state['detalles_pendientes']}",
+            'Error de diagnóstico': meta.get('error_conexion') or meta.get('error') or 'Ninguno registrado',
+        }
+        rows = ''.join('<tr><th>' + escape(k) + '</th><td>' + escape(v) + '</td></tr>' for k, v in fields.items())
+        rows += '<tr><th>Última conexión exitosa</th><td>' + local_time(meta.get('ultima_conexion_exitosa')) + '</td></tr>'
+        rows += '<tr><th>Última sincronización completa</th><td>' + local_time(meta.get('ultima_sincronizacion')) + '</td></tr>'
+        rows += '<tr><th>Próximo intento</th><td>' + ('Después de terminar este ciclo' if meta.get('estado') == 'sincronizando' else local_time(meta.get('reintentar_desde') or meta.get('proximo_intento'))) + '</td></tr>'
+        purchases = ''
+        for result in data['resultados']:
+            cells = ''.join('<td>' + escape(result.get(k)) + '</td>' for k in ('id', 'organismo', 'cantidad', 'presupuesto', 'fecha_cierre'))
+            cells += '<td><a href="' + escape(result['enlace']) + '">Detalle API (requiere ticket)</a></td>'
+            cells += '<td>' + escape(json.dumps(result['items'], ensure_ascii=False)) + '</td>'
+            purchases += '<tr>' + cells + '</tr>'
+        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Buscador de Pendones · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Buscador de Pendones</h1><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="./monitor">Actualizar ahora</a> · <a href="./">Vista moderna</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
+        document += rows + '</tbody></table><h2>Resultados disponibles</h2><p>'
+        document += str(len(data['resultados'])) + ' coincidencias reales en la caché consultada. Durante la carga los resultados son parciales; cero coincidencias no acredita ausencia de oportunidades.</p><p>' + escape(data['cobertura']) + '</p>'
+        document += '<p>Compras sin ítems: ' + str(data['sin_items']) + '. Fechas ambiguas omitidas: ' + str(data['fecha_no_interpretable']) + '.</p>'
+        document += '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Organismo</th><th>Cantidad</th><th>Presupuesto</th><th>Cierre</th><th>Enlace</th><th>Ítems de la fuente</th></tr></thead><tbody>' + purchases + '</tbody></table></div></main></body></html>'
+        return document.encode()
     def send(self, status, body, content_type='application/json; charset=utf-8'):
         data = json.dumps(body, ensure_ascii=False).encode() if isinstance(body, dict) else body
         self.send_response(status)
@@ -157,7 +193,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
-        routes = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
+        routes = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/legacy.js': ('legacy.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
+        if path == '/monitor':
+            if self.store is None:
+                return self.send(503, {'error': 'Almacenamiento no iniciado.'})
+            return self.send(200, self.monitor_page(), 'text/html; charset=utf-8')
         if path == '/api/health':
             return self.send(200, {'estado': 'ok', 'modo': 'api_oficial_v2', 'cobertura_nacional_verificada': False,
                                    'ticket_configurado': bool(os.environ.get('CHILECOMPRA_TICKET'))})

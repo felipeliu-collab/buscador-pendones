@@ -83,7 +83,7 @@ class HTTPTests(unittest.TestCase):
         cls.temp.cleanup()
 
     def test_page_assets_and_health(self):
-        for path in ['/', '/app.js', '/app.js?v=3', '/style.css', '/api/health', '/api/estado']:
+        for path in ['/', '/app.js', '/app.js?v=3', '/legacy.js', '/monitor', '/style.css', '/api/health', '/api/estado']:
             with urllib.request.urlopen(self.base + path) as response:
                 self.assertEqual(response.status, 200)
                 self.assertTrue(response.read())
@@ -99,6 +99,14 @@ class HTTPTests(unittest.TestCase):
         self.assertIn('Servidor activo', page)
         self.assertIn('DIAGNÓSTICO SINTÉTICO', page)
         self.assertNotIn('<!--SERVER_STATUS-->', page)
+
+    def test_monitor_works_without_javascript(self):
+        with urllib.request.urlopen(self.base + '/monitor') as response:
+            page = response.read().decode()
+        self.assertIn('http-equiv="refresh" content="30"', page)
+        self.assertIn('DIAGNÓSTICO SINTÉTICO', page)
+        self.assertIn('Última sincronización completa', page)
+        self.assertNotIn('<script', page)
 
     def test_search_endpoint_exercises_nested_description(self):
         payload = {'fuente': SOURCE, 'contenido': json.dumps([{'id': 'PRUEBA-HTTP', 'tipo': 'Compra Ágil', 'items': [{'descripcion': 'pendón'}]}])}

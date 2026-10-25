@@ -93,3 +93,9 @@ Los tests usan fixtures **sintéticas**, no resultados de compras reales. Cubren
 La importación anterior sigue disponible como alternativa manual. No es necesaria para el modo automático. En esta modalidad, se indica una URL oficial de procedencia y se aporta un CSV/JSON, o se descarga una URL directa de datos públicos. La procedencia del archivo es declarada, no certificada.
 
 El JSON debe ser una lista o un objeto con array `compras` o `records`. CSV: UTF-8 con encabezados y separador coma, punto y coma o tabulador. Cada registro debe incluir `id` y `tipo: Compra Ágil`. Campos opcionales: `organismo`, `cantidad`, `presupuesto`, `fecha_cierre`, `enlace`, `items`. Las descripciones e ítems anidados se buscan recursivamente. Este es el contrato del importador, no un esquema oficial atribuido a ChileCompra. No acredita vigencia. Máximo 10 MiB, incluyendo la solicitud JSON que transporta el archivo.
+
+### Internet Explorer y vista sin JavaScript
+
+La interfaz moderna requiere un navegador con módulos JavaScript, `fetch` y `AbortSignal.timeout`. Internet Explorer no los soporta. Para esos navegadores existe **`/monitor`**, una página generada completamente por Python, sin JavaScript, con conexión, ticket oculto, errores, progreso, fecha de sincronización y resultados reales de la misma caché. Se actualiza cada 30 segundos mediante HTML. La portada enlaza esta vista y el script ES5 `legacy.js` dirige allí a navegadores sin módulos. También funciona con JavaScript desactivado mediante el enlace.
+
+Se comprobó la vista sin JavaScript con Chromium y se verificó el redireccionamiento compatible; no se dispuso de Internet Explorer para una prueba nativa. Ambas vistas necesitan el servidor Python: un alojamiento estático no ejecuta `/monitor` ni el sincronizador.
