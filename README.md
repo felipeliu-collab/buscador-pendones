@@ -134,3 +134,7 @@ Si necesitas un sitio accesible permanentemente desde cualquier equipo, el sigui
 ### Si PowerShell no permite pegar el ticket
 
 Actualiza el repositorio con `git pull` y ejecuta `python app.py --ticket-window --open-browser`. Se abre una ventana nativa con campo oculto, botón **Pegar ticket** y botón **Iniciar buscador**. Usa Tcl/Tk, incluido normalmente en el instalador tradicional de Python para Windows. La ventana confirma que se pegó texto sin revelar el ticket; no lo guarda en disco. Cerrar la ventana cancela el inicio. Esta interfaz gráfica no se verificó en Windows desde Codex; las 22 pruebas existentes del servidor y sincronizador siguen pasando.
+
+### Error `No time zone found with key America/Santiago` en Windows
+
+La página usa UTC con una etiqueta explícita si Windows no dispone de la base de zonas IANA; no debería quedar en blanco. Para mostrar la hora chilena, se puede instalar opcionalmente la base oficial para Python con `python -m pip install tzdata` y reiniciar el buscador. Se verifican ambas páginas mediante una prueba que simula la ausencia de esos datos.

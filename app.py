@@ -19,7 +19,7 @@ import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sync import Store, Synchronizer, connection_status, opportunities, timestamp
 
 ROOT = Path(__file__).parent
@@ -200,7 +200,15 @@ class Handler(BaseHTTPRequestHandler):
     @staticmethod
     def local_time(value):
         parsed = timestamp(value)
-        return parsed.astimezone(ZoneInfo('America/Santiago')).strftime('%d/%m/%Y %H:%M:%S %Z') if parsed else 'Ninguna registrada'
+        if parsed is None:
+            return 'Ninguna registrada'
+        try:
+            zone = ZoneInfo('America/Santiago')
+        except ZoneInfoNotFoundError:
+            # Windows may have no IANA database. Keep the page usable without
+            # guessing Chile's offset or daylight-saving rules.
+            return parsed.astimezone(timezone.utc).strftime('%d/%m/%Y %H:%M:%S UTC') + ' (zona de Chile no disponible)'
+        return parsed.astimezone(zone).strftime('%d/%m/%Y %H:%M:%S %Z')
 
     @staticmethod
     def result_rows(results):
@@ -252,8 +260,7 @@ class Handler(BaseHTTPRequestHandler):
         def escape(value):
             return html.escape(str(value)) if value is not None else 'No informado'
         def local_time(value):
-            parsed = timestamp(value)
-            return escape(parsed.astimezone(ZoneInfo('America/Santiago')).strftime('%d/%m/%Y %H:%M:%S %Z')) if parsed else 'Ninguna registrada'
+            return escape(self.local_time(value))
         fields = {
             'Servidor': 'Activo',
             'Ticket': 'Configurado (valor oculto)' if state['ticket_configurado'] else 'Ausente en el proceso',

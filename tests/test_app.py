@@ -11,6 +11,7 @@ from unittest.mock import patch
 from app import Handler, download, official_url, search
 from sync import Store
 from pathlib import Path
+from zoneinfo import ZoneInfoNotFoundError
 
 SOURCE = 'https://datos-abiertos.chilecompra.cl/'
 
@@ -135,6 +136,15 @@ class HTTPTests(unittest.TestCase):
         self.assertIn('DIAGNÓSTICO SINTÉTICO', page)
         self.assertIn('Última sincronización completa', page)
         self.assertNotIn('<script', page)
+
+    def test_missing_windows_timezone_database_does_not_break_pages(self):
+        Handler.store.set_meta(ultima_conexion_exitosa='2026-10-25T12:00:00Z', ultima_sincronizacion='2026-10-25T12:00:00Z')
+        with patch('app.ZoneInfo', side_effect=ZoneInfoNotFoundError('America/Santiago')):
+            for path in ('/', '/monitor'):
+                with self.subTest(path=path), urllib.request.urlopen(self.base + path) as response:
+                    page = response.read().decode()
+                self.assertIn('25/10/2026 12:00:00 UTC', page)
+                self.assertIn('zona de Chile no disponible', page)
 
     def test_search_endpoint_exercises_nested_description(self):
         payload = {'fuente': SOURCE, 'contenido': json.dumps([{'id': 'PRUEBA-HTTP', 'tipo': 'Compra Ágil', 'items': [{'descripcion': 'pendón'}]}])}
