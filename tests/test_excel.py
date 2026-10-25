@@ -28,6 +28,10 @@ class ExcelTests(unittest.TestCase):
             self.assertIn('name="Estado"', book)
             purchases = archive.read('xl/worksheets/sheet1.xml').decode()
             self.assertIn('PRUEBA-XLSX', purchases)
+            ns = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+            cells = {c.attrib['r']: c.find('s:is/s:t', ns).text for c in ET.fromstring(purchases).findall('.//s:c', ns)}
+            self.assertEqual(cells['D1'], 'Ítems')
+            self.assertEqual(cells['D2'], 'Impresión | Pendón <roller> | Cantidad: 2')
             self.assertIn('=HYPERLINK', purchases)
             self.assertNotIn('<f>', purchases)
             self.assertIn('t="inlineStr"', purchases)

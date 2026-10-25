@@ -150,3 +150,5 @@ Una desconexión del navegador durante el envío de HTML (`ConnectionResetError`
 ## Descargar Excel
 
 El botón **Descargar Excel**, disponible sobre los resultados en ambas vistas y compatible sin JavaScript, descarga `pendones.xlsx`. Incluye **Compras** (ID, título, organismo, cantidades, presupuesto, cierre, enlace y términos), **Items** (productos de las compras exportadas con indicador de coincidencia) y **Estado** (fuente, fecha UTC de exportación, última sincronización, pendientes y advertencia de carga parcial). Se exporta la caché automática disponible al descargar; no incluye búsquedas manuales ni completa registros pendientes. Descargar no consume consultas oficiales, no incluye el ticket y no requiere instalar paquetes. Las celdas se guardan como texto para evitar ejecutar fórmulas procedentes de datos. Los textos mayores a 32.767 caracteres se recortan por el límite de Excel.
+
+La hoja **Compras** también incluye una columna **Ítems** con nombre, descripción, cantidad y unidad de todos los productos disponibles, un producto por línea dentro de la celda. La hoja **Items** conserva el detalle por filas.

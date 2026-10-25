@@ -40,10 +40,17 @@ def worksheet(rows):
 
 
 def export_xlsx(data):
-    purchases = [['ID', 'Título', 'Organismo', 'Cantidad de ítems coincidentes', 'Presupuesto informado', 'Fecha de cierre', 'Enlace API (requiere ticket)', 'Coincidencia en título', 'Coincidencia en ítems', 'Términos encontrados']]
+    purchases = [['ID', 'Título', 'Organismo', 'Ítems', 'Cantidad de ítems coincidentes', 'Presupuesto informado', 'Fecha de cierre', 'Enlace API (requiere ticket)', 'Coincidencia en título', 'Coincidencia en ítems', 'Términos encontrados']]
     items = [['ID compra', 'Nombre del ítem', 'Descripción del ítem', 'Cantidad', 'Unidad de medida', 'Coincidente']]
     for result in data['resultados']:
-        purchases.append([result.get('id'), result.get('titulo'), result.get('organismo'), result.get('cantidad'), result.get('presupuesto'), result.get('fecha_cierre'), result.get('enlace'), 'Sí' if result.get('coincidencia_en_titulo') else 'No', 'Sí' if result.get('coincidencia_en_items') else 'No', ', '.join(result.get('coincidencias', []))])
+        item_lines = []
+        for item in result.get('items') or []:
+            if isinstance(item, dict):
+                parts = [str(item[k]) for k in ('nombre', 'descripcion') if item.get(k) is not None and item[k] != '']
+                if item.get('cantidad') is not None:
+                    parts.append('Cantidad: ' + str(item['cantidad']) + (' ' + str(item['unidad_medida']) if item.get('unidad_medida') else ''))
+                item_lines.append(' | '.join(parts) or 'Ítem sin datos informados')
+        purchases.append([result.get('id'), result.get('titulo'), result.get('organismo'), '\n'.join(item_lines) or 'No informado', result.get('cantidad'), result.get('presupuesto'), result.get('fecha_cierre'), result.get('enlace'), 'Sí' if result.get('coincidencia_en_titulo') else 'No', 'Sí' if result.get('coincidencia_en_items') else 'No', ', '.join(result.get('coincidencias', []))])
         for item in result.get('items') or []:
             if isinstance(item, dict):
                 items.append([result.get('id'), item.get('nombre'), item.get('descripcion'), item.get('cantidad'), item.get('unidad_medida'), 'Sí' if item in result.get('items_coincidentes', []) else 'No'])
