@@ -99,6 +99,34 @@ class HTTPTests(unittest.TestCase):
         self.assertIn('Servidor activo', page)
         self.assertIn('DIAGNÓSTICO SINTÉTICO', page)
         self.assertNotIn('<!--SERVER_STATUS-->', page)
+        self.assertNotIn('Sin comprobar', page)
+        self.assertIn('Activo · respuesta generada por el servidor', page)
+
+    def test_frame_policy_allows_same_origin_only_by_default(self):
+        with urllib.request.urlopen(self.base + '/') as response:
+            policy = response.headers['Content-Security-Policy']
+        self.assertIn("frame-ancestors 'self'", policy)
+        self.assertNotIn("frame-ancestors 'none'", policy)
+
+    def test_home_renders_actual_cache_without_javascript_and_escapes_content(self):
+        previous = Handler.store
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                Handler.store = Store(Path(directory) / 'cache.sqlite3')
+                row = {'codigo': 'PRUEBA-SSR', 'nombre': '<img src=x onerror=alert(1)>',
+                       'estado': {'codigo': 'publicada'}, 'fechas': {'fecha_cierre': '2099-01-01T12:00:00Z'},
+                       'productos_solicitados': [{'nombre': 'pendón', 'cantidad': 2}]}
+                Handler.store.ingest([row], '2026-01-01T00:00:00Z', bootstrap=True)
+                Handler.store.save_detail('PRUEBA-SSR', row)
+                with urllib.request.urlopen(self.base + '/') as response:
+                    page = response.read().decode()
+                self.assertIn('PRUEBA-SSR', page)
+                self.assertIn('1 coincidencias', page)
+                self.assertIn('&lt;img src=x onerror=alert(1)&gt;', page)
+                self.assertNotIn('<img src=x', page)
+                self.assertIn('<table id="results">', page)
+        finally:
+            Handler.store = previous
 
     def test_monitor_works_without_javascript(self):
         with urllib.request.urlopen(self.base + '/monitor') as response:

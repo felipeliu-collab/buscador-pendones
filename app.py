@@ -6,12 +6,16 @@ import io
 import ipaddress
 import json
 import os
+import getpass
 import re
 import socket
 import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
+import threading
+import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -145,6 +149,55 @@ def download(url):
 class Handler(BaseHTTPRequestHandler):
     store = None
     worker = None
+    frame_origins = ["'self'"]
+
+    @staticmethod
+    def local_time(value):
+        parsed = timestamp(value)
+        return parsed.astimezone(ZoneInfo('America/Santiago')).strftime('%d/%m/%Y %H:%M:%S %Z') if parsed else 'Ninguna registrada'
+
+    @staticmethod
+    def result_rows(results):
+        rows = ''
+        for result in results:
+            esc = lambda value: html.escape(str(value)) if value is not None else 'No informado'
+            cells = ''.join('<td>' + esc(result.get(k)) + '</td>' for k in ('id', 'organismo', 'cantidad', 'presupuesto', 'fecha_cierre'))
+            cells += '<td><a href="' + esc(result['enlace']) + '">Detalle API (requiere ticket)</a></td>'
+            cells += '<td>' + esc(result.get('titulo') or '') + '<br>' + esc(json.dumps(result['items'], ensure_ascii=False)) + '</td>'
+            rows += '<tr>' + cells + '</tr>'
+        return rows
+
+    def home_page(self):
+        document = (ROOT / 'static' / 'index.html').read_text()
+        if not self.store:
+            return document.encode()
+        state = connection_status(self.store, self.worker)
+        meta = state['sincronizacion']
+        data = opportunities(self.store, TERMS, normalize)
+        values = {
+            'server-state': 'Activo · respuesta generada por el servidor',
+            'ticket-state': 'Configurado en el proceso (valor oculto)' if state['ticket_configurado'] else 'Ausente en el proceso',
+            'connection-state': meta.get('conexion', 'Todavía sin respuesta de la API') + (' · HTTP ' + meta['http_status'] if meta.get('http_status') else ''),
+            'last-connection': self.local_time(meta.get('ultima_conexion_exitosa')),
+            'last-sync': self.local_time(meta.get('ultima_sincronizacion')),
+            'sync-progress': f"{meta.get('estado', 'iniciando')} · trabajador {'activo' if state['trabajador_activo'] else 'detenido'} · fase {meta.get('fase', 'sin iniciar')} · páginas {meta.get('paginas_leidas', '0')}/{meta.get('paginas_totales') or '?'} · detalles guardados {state['detalles_guardados']} · pendientes {state['detalles_pendientes']}",
+            'next-sync': 'Después de terminar este ciclo' if meta.get('estado') == 'sincronizando' else self.local_time(meta.get('reintentar_desde') or meta.get('proximo_intento')),
+            'connection-error': meta.get('error_conexion') or meta.get('error') or 'Ninguno registrado',
+            'status': f"{len(data['resultados'])} coincidencias en los datos reales recibidos de ChileCompra. {data['pendientes']} detalles pendientes. Los resultados son parciales mientras la sincronización no esté completa. Fechas ambiguas omitidas: {data['fecha_no_interpretable']}.",
+            'coverage': data['cobertura'],
+        }
+        for element, value in values.items():
+            pattern = r'(<(?:dd|p) id="' + element + r'"[^>]*>).*?(</(?:dd|p)>)'
+            document = re.sub(pattern, lambda m: m[1] + html.escape(str(value)) + m[2], document, flags=re.S)
+        summary = ('Servidor activo. Ticket: ' + ('configurado' if state['ticket_configurado'] else 'ausente')
+                   + '. Estado: ' + meta.get('estado', 'iniciando')
+                   + '. Última sincronización completada: ' + self.local_time(meta.get('ultima_sincronizacion'))
+                   + '. ' + meta.get('error', ''))
+        document = document.replace('<!--SERVER_STATUS-->', html.escape(summary))
+        document = document.replace('<tbody></tbody>', '<tbody>' + self.result_rows(data['resultados']) + '</tbody>')
+        if data['resultados']:
+            document = document.replace('<table hidden id="results">', '<table id="results">')
+        return document.encode()
 
     def monitor_page(self):
         state = connection_status(self.store, self.worker)
@@ -168,12 +221,7 @@ class Handler(BaseHTTPRequestHandler):
         rows += '<tr><th>Última conexión exitosa</th><td>' + local_time(meta.get('ultima_conexion_exitosa')) + '</td></tr>'
         rows += '<tr><th>Última sincronización completa</th><td>' + local_time(meta.get('ultima_sincronizacion')) + '</td></tr>'
         rows += '<tr><th>Próximo intento</th><td>' + ('Después de terminar este ciclo' if meta.get('estado') == 'sincronizando' else local_time(meta.get('reintentar_desde') or meta.get('proximo_intento'))) + '</td></tr>'
-        purchases = ''
-        for result in data['resultados']:
-            cells = ''.join('<td>' + escape(result.get(k)) + '</td>' for k in ('id', 'organismo', 'cantidad', 'presupuesto', 'fecha_cierre'))
-            cells += '<td><a href="' + escape(result['enlace']) + '">Detalle API (requiere ticket)</a></td>'
-            cells += '<td>' + escape(json.dumps(result['items'], ensure_ascii=False)) + '</td>'
-            purchases += '<tr>' + cells + '</tr>'
+        purchases = self.result_rows(data['resultados'])
         document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>Buscador de Pendones · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>Buscador de Pendones</h1><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="./monitor">Actualizar ahora</a> · <a href="./">Vista moderna</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
         document += rows + '</tbody></table><h2>Resultados disponibles</h2><p>'
         document += str(len(data['resultados'])) + ' coincidencias reales en la caché consultada. Durante la carga los resultados son parciales; cero coincidencias no acredita ausencia de oportunidades.</p><p>' + escape(data['cobertura']) + '</p>'
@@ -187,7 +235,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(data)))
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Cache-Control', 'no-store')
-        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors " + ' '.join(self.frame_origins))
         self.end_headers()
         self.wfile.write(data)
 
@@ -212,14 +260,7 @@ class Handler(BaseHTTPRequestHandler):
         if path not in routes:
             return self.send(404, {'error': 'No encontrado'})
         name, mime = routes[path]
-        body = (ROOT / 'static' / name).read_bytes()
-        if path == '/' and self.store:
-            meta = self.store.metadata()
-            summary = ('Servidor activo. Ticket: ' + ('configurado' if os.environ.get('CHILECOMPRA_TICKET') else 'ausente')
-                       + '. Estado: ' + meta.get('estado', 'iniciando')
-                       + '. Última sincronización completada: ' + meta.get('ultima_sincronizacion', 'ninguna')
-                       + '. ' + meta.get('error', ''))
-            body = body.replace(b'<!--SERVER_STATUS-->', html.escape(summary).encode())
+        body = self.home_page() if path == '/' else (ROOT / 'static' / name).read_bytes()
         self.send(200, body, mime)
 
     def do_POST(self):
@@ -257,9 +298,23 @@ if __name__ == '__main__':
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--data-dir', default=str(ROOT / 'data'))
+    parser.add_argument('--ask-ticket', action='store_true', help='Pedir el ticket con entrada oculta para ejecución local; no se guarda en disco.')
+    parser.add_argument('--open-browser', action='store_true', help='Abrir la vista compatible en el navegador de este equipo.')
+    parser.add_argument('--frame-origin', action='append', default=[], help='Origen HTTPS exacto autorizado para incrustar la aplicación; se puede repetir.')
     args = parser.parse_args()
+    for origin in args.frame_origin:
+        parsed = urllib.parse.urlsplit(origin)
+        if parsed.scheme != 'https' or not parsed.hostname or not re.fullmatch(r'[A-Za-z0-9.-]+(?::[0-9]+)?', parsed.netloc) or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment or '*' in origin or any(c.isspace() for c in origin):
+            parser.error('--frame-origin debe ser un origen HTTPS exacto, sin ruta, credenciales ni comodines.')
+    Handler.frame_origins = ["'self'", *args.frame_origin]
+    if args.ask_ticket:
+        if not sys.stdin.isatty():
+            parser.error('--ask-ticket requiere una terminal interactiva para evitar mostrar la credencial.')
+        os.environ['CHILECOMPRA_TICKET'] = getpass.getpass('Ticket ChileCompra (entrada oculta; no se guarda): ').strip()
     Handler.store = Store(Path(args.data_dir) / 'compras.sqlite3')
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     Handler.worker = Synchronizer(Handler.store).start()
     print(f'Buscador de Pendones escuchando en {args.host}:{args.port}', flush=True)
+    if args.open_browser:
+        threading.Timer(0.5, webbrowser.open, args=(f'http://127.0.0.1:{args.port}/monitor',)).start()
     server.serve_forever()

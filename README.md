@@ -99,3 +99,34 @@ El JSON debe ser una lista o un objeto con array `compras` o `records`. CSV: UTF
 La interfaz moderna requiere un navegador con módulos JavaScript, `fetch` y `AbortSignal.timeout`. Internet Explorer no los soporta. Para esos navegadores existe **`/monitor`**, una página generada completamente por Python, sin JavaScript, con conexión, ticket oculto, errores, progreso, fecha de sincronización y resultados reales de la misma caché. Se actualiza cada 30 segundos mediante HTML. La portada enlaza esta vista y el script ES5 `legacy.js` dirige allí a navegadores sin módulos. También funciona con JavaScript desactivado mediante el enlace.
 
 Se comprobó la vista sin JavaScript con Chromium y se verificó el redireccionamiento compatible; no se dispuso de Internet Explorer para una prueba nativa. Ambas vistas necesitan el servidor Python: un alojamiento estático no ejecuta `/monitor` ni el sincronizador.
+
+## Vista previa bloqueada y diagnóstico por consola
+
+El servidor original enviaba `Content-Security-Policy: … frame-ancestors 'none'`, que impide cualquier iframe. Ahora permite `'self'`; un alojamiento que deba incrustarlo desde otro origen HTTPS puede autorizar ese origen exacto mediante `--frame-origin`. No se habilitan todos los dominios ni se quitan las verificaciones TLS. Una política del visor externo aún puede bloquear la aplicación y no se controla desde este repositorio.
+
+La UI de configuración del entorno de Codex no ofrece en este flujo un mecanismo de publicación web soportado. Los HTTP 200 internos no prueban que exista una dirección pública accesible desde tu navegador. No confundir un archivo HTML visible al lado del chat con la página que entrega el servidor Python. Cambiar a `0.0.0.0` por sí solo tampoco crea un dominio público ni configura HTTPS.
+
+La portada ahora genera **todos los estados y las filas de resultados en el servidor**, además de actualizarlos con JavaScript cuando está disponible. Si el navegador bloquea las consultas de actualización, conserva los resultados ya recibidos y avisa que pueden estar desactualizados. Abrir directamente el archivo `static/index.html` sigue sin ejecutar Python y no puede consultar ChileCompra.
+
+Ejecuta desde una terminal de Codex, sin navegador:
+
+```bash
+cd /workspace/buscador-pendones
+python diagnostico.py --live
+```
+
+Comprueba las rutas locales, la política de frames, el trabajador, el secreto presente (nunca su valor), contadores, listado autenticado y hasta dos detalles reales. Informa el error exacto redactando la credencial; devuelve un código distinto de cero si el servidor o la conexión oficial fallan. No inicia servidores ni altera el cursor de sincronización. Las consultas oficiales cuentan para la cuota. No publica archivos con datos reales ni imprime headers de autenticación.
+
+### Usarlo desde el navegador de tu equipo
+
+Instala Python 3.12+ y Git. En una terminal de **tu equipo**, ejecuta:
+
+```bash
+git clone https://github.com/felipeliu-collab/buscador-pendones.git
+cd buscador-pendones
+python app.py --ask-ticket --open-browser
+```
+
+Si ya tienes el repositorio, actualízalo con `git pull` dentro de su carpeta en lugar de clonarlo otra vez. El programa pide tu ticket de ChileCompra con entrada oculta, lo conserva solo en memoria y abre automáticamente la vista compatible en el navegador **de tu equipo**. No lo escribas en el comando, en GitHub ni en el chat. Mantén la terminal abierta mientras utilices el buscador. Tu PC debe tener acceso directo autorizado a `api2.mercadopublico.cl`; la configuración secreta de Codex no se transfiere automáticamente al PC.
+
+Si necesitas un sitio accesible permanentemente desde cualquier equipo, el siguiente paso es desplegar Python con almacenamiento persistente, HTTPS y la credencial segura en el hosting elegido. El repositorio preparado no equivale a un despliegue ya publicado. No se ha creado un túnel público ni una URL de vista previa desde esta sesión.

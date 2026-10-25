@@ -105,7 +105,11 @@ async function loadAutomatic() {
     autoStatus.textContent = `No se pudo actualizar el estado o los resultados: ${message}`;
     autoStatus.dataset.state = 'error';
     setText('server-state', 'No se pudo completar la consulta; los indicadores previos pueden estar desactualizados');
-    if (!manualMode) { table.hidden = true; resultStatus.textContent = autoStatus.textContent; }
+    if (!manualMode) {
+      const retainedRows = table.querySelectorAll('tbody tr').length;
+      table.hidden = retainedRows === 0;
+      resultStatus.textContent = autoStatus.textContent + (retainedRows ? ` Se conservan ${retainedRows} coincidencias de la última respuesta del servidor; pueden estar desactualizadas.` : ' No hay resultados confirmados disponibles en esta página.');
+    }
   } finally { loading = false; }
 }
 document.querySelector('#refresh').addEventListener('click', () => { manualMode = false; loadAutomatic(); });

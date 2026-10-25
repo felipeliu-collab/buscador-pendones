@@ -329,6 +329,9 @@ def opportunities(store, match, normalize):
         code = detail['codigo']
         result.append({
             'id': code, 'organismo': (detail.get('institucion') or {}).get('organismo_comprador'),
+            'titulo': detail.get('nombre'),
+            'coincidencia_en_titulo': bool(match.search(normalize(str(detail.get('nombre') or '')))),
+            'coincidencia_en_items': bool(match.search(normalize(product_text))),
             'cantidad': '; '.join(quantities) or None,
             'presupuesto': (str(amount) + ' ' + currency).strip() if amount is not None else None,
             'fecha_cierre': iso(closing),

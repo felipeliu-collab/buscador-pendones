@@ -59,3 +59,9 @@ Se constató que el detalle puede entregar fechas como `2026-10-26 16:00`, sin z
 No se verificó aún una carga nacional completa, dos ciclos horarios ni la restauración del proceso en un despliegue permanente. Los documentos anteriores describen el estado observado en sus fechas; los errores pasados de proxy no significan un bloqueo persistente después de aplicar configuración.
 
 La carga real completó el recorrido inicial de páginas y comenzó la consulta de detalles. Se verificaron coincidencias reales servidas por la aplicación, sin convertirlas en fixtures ni subirlas al repositorio. El conteo de coincidencias y pendientes es dinámico y visible en la aplicación; no se declara carga nacional completa mientras existan detalles pendientes. La vista sin JavaScript `/monitor` permite consultar el estado sin depender de las funciones modernas que Internet Explorer no implementa.
+
+## Vista previa y comprobación desde consola
+
+Se verificó directamente desde Codex que `/`, `/monitor`, `/api/health`, `/api/estado` y `/api/oportunidades` respondían HTTP 200. El servidor original incluía `frame-ancestors 'none'`, que prohíbe incrustación. La política se cambió a `'self'` y se agregó configuración de orígenes HTTPS exactos para un despliegue autorizado. Esto no prueba ni garantiza que la interfaz de vista previa de Codex publique el puerto o permita la incrustación.
+
+Se añadió `diagnostico.py --live`, sin navegador. La prueba real verificó listado y detalles oficiales con HTTP 200 y coincidencias en un título y en ítems de una compra cuyo título no contenía los términos. No se guardan sus respuestas como fixtures. La carga de detalles seguía incompleta; no se declara sincronización nacional terminada. Se preservó la base SQLite y el ticket nunca se imprimió ni subió a GitHub.
