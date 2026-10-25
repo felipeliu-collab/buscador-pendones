@@ -174,6 +174,19 @@ class HTTPTests(unittest.TestCase):
                 with ZipFile(io.BytesIO(response.read())) as book:
                     self.assertIn('xl/workbook.xml', book.namelist())
 
+    def test_budget_search_routes_do_not_call_api(self):
+        import io
+        from zipfile import ZipFile
+        with patch('sync.API.get', side_effect=AssertionError('Budget search must use cache')):
+            with urllib.request.urlopen(self.base + '/menores-100000') as response:
+                self.assertIn('Compras Ágiles menores a $100.000', response.read().decode())
+            with urllib.request.urlopen(self.base + '/api/menores-100000') as response:
+                self.assertIn('sin_monto_clp', json.load(response))
+            with urllib.request.urlopen(self.base + '/menores-100000.xlsx') as response:
+                self.assertIn('compras_menores_100000.xlsx', response.headers['Content-Disposition'])
+                with ZipFile(io.BytesIO(response.read())) as book:
+                    self.assertIn('Compras menores a 100000', book.read('xl/workbook.xml').decode())
+
     def test_missing_windows_timezone_database_does_not_break_pages(self):
         Handler.store.set_meta(ultima_conexion_exitosa='2026-10-25T12:00:00Z', ultima_sincronizacion='2026-10-25T12:00:00Z')
         with patch('app.ZoneInfo', side_effect=ZoneInfoNotFoundError('America/Santiago')):

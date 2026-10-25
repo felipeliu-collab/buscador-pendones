@@ -93,6 +93,7 @@ def desktop_alerts(center, port=8000):
     buttons = tk.Frame(root)
     buttons.pack(pady=8)
     tk.Button(buttons, text='Abrir compras', command=lambda: webbrowser.open(f'http://127.0.0.1:{port}/monitor')).pack(side=tk.LEFT, padx=6)
+    tk.Button(buttons, text='Menores a $100.000', command=lambda: webbrowser.open(f'http://127.0.0.1:{port}/menores-100000')).pack(side=tk.LEFT, padx=6)
     tk.Button(buttons, text='Ver historial de avisos', command=lambda: webbrowser.open(f'http://127.0.0.1:{port}/avisos')).pack(side=tk.LEFT, padx=6)
     popup = None
 
