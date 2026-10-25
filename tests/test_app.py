@@ -236,6 +236,34 @@ class HTTPTests(unittest.TestCase):
         finally:
             Handler.store = previous
 
+    def test_sail_flag_button_routes_and_download_use_matching_items(self):
+        import io
+        from zipfile import ZipFile
+        previous = Handler.store
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                Handler.store = Store(Path(directory) / 'cache.sqlite3')
+                doc = {'codigo': 'PRUEBA-VELA', 'nombre': 'Material institucional', 'estado': {'codigo': 'publicada'}, 'fechas': {'fecha_cierre': '2099-01-01T00:00:00Z'}, 'productos_solicitados': [{'nombre': 'Bandera tipo vela', 'cantidad': 2}]}
+                Handler.store.ingest([doc], '2026-01-01T00:00:00Z', bootstrap=True)
+                Handler.store.save_detail('PRUEBA-VELA', doc)
+                with patch('sync.API.get', side_effect=AssertionError('Use cache only')):
+                    for path in ('/', '/monitor'):
+                        with urllib.request.urlopen(self.base + path) as response:
+                            self.assertIn('href="./banderas-vela"', response.read().decode())
+                    with urllib.request.urlopen(self.base + '/banderas-vela') as response:
+                        page = response.read().decode()
+                    self.assertIn('<h1>Banderas vela</h1>', page)
+                    self.assertIn('href="./banderas-vela.xlsx"', page)
+                    self.assertIn('PRUEBA-VELA', page)
+                    with urllib.request.urlopen(self.base + '/api/banderas-vela') as response:
+                        self.assertEqual(json.load(response)['resultados'][0]['donde_coincide'], ['Ítems'])
+                    with urllib.request.urlopen(self.base + '/banderas-vela.xlsx') as response:
+                        self.assertIn('banderas_vela.xlsx', response.headers['Content-Disposition'])
+                        with ZipFile(io.BytesIO(response.read())) as book:
+                            self.assertIn('PRUEBA-VELA', book.read('xl/worksheets/sheet1.xml').decode())
+        finally:
+            Handler.store = previous
+
     def test_missing_windows_timezone_database_does_not_break_pages(self):
         Handler.store.set_meta(ultima_conexion_exitosa='2026-10-25T12:00:00Z', ultima_sincronizacion='2026-10-25T12:00:00Z')
         with patch('app.ZoneInfo', side_effect=ZoneInfoNotFoundError('America/Santiago')):

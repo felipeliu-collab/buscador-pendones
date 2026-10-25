@@ -199,3 +199,9 @@ El botón **Segundo llamado · Menos de $500.000** está en la portada, la vista
 El botón **Pin o pines** está en la portada, la vista compatible y el panel de Windows. Abre `/pines`, con descarga `/pines.xlsx` (`pin_o_pines.xlsx`) y consulta local `/api/pines`. Busca palabras completas **pin** o **pines**, sin distinguir mayúsculas o tildes, en título O descripción O nombre/descripción de productos solicitados. No incluye por subcadena palabras como pintura, pincel o pinzas. La coincidencia es textual y puede tener distintos significados: revisa el contexto antes de ofertar.
 
 Comparte la caché oficial y sus límites; no consulta nuevamente la API al abrir la vista o descargar y no representa todas las compras mientras falten detalles. El Excel indica el filtro y dónde se encontró cada coincidencia. Los avisos actuales de escritorio siguen correspondiendo a pendones; no se agregan avisos de pines automáticamente.
+
+## Botón Banderas vela
+
+El botón **Banderas vela** está en la portada, la vista compatible y el panel de Windows. Abre `/banderas-vela`, con descarga `/banderas-vela.xlsx` (`banderas_vela.xlsx`) y consulta `/api/banderas-vela`. Busca expresiones como **bandera vela**, **banderas velas**, **banderas tipo vela** y **bandera publicitaria tipo vela**, incluyendo nombres y descripciones de un mismo ítem. La palabra vela aislada no basta; se evitan así coincidencias genéricas de velas de cera. Tampoco se forman frases juntando títulos con descripciones o productos distintos.
+
+Comparte los datos oficiales ya guardados y sus límites de cobertura. No se añaden consultas ni avisos de escritorio por este filtro. El Excel indica dónde se encontró la expresión y si la carga está incompleta.

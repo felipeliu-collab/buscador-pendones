@@ -327,12 +327,15 @@ def opportunities(store, match, normalize):
         if not isinstance(products, list) or not products:
             missing_items += 1
             products = []
-        demand = ' '.join(str(detail.get(k) or '') for k in ('nombre', 'descripcion'))
-        product_text = ' '.join(str(p.get(k) or '') for p in products if isinstance(p, dict) for k in ('nombre', 'descripcion'))
-        hits = sorted(set(m.group() for m in match.finditer(normalize(demand + ' ' + product_text))))
+        title_text = normalize(str(detail.get('nombre') or ''))
+        description_text = normalize(str(detail.get('descripcion') or ''))
+        product_texts = [(p, normalize(str(p.get('nombre') or '') + ' ' + str(p.get('descripcion') or '')))
+                         for p in products if isinstance(p, dict)]
+        # Do not assemble a phrase across unrelated fields or separate items.
+        hits = sorted({m.group() for text in [title_text, description_text, *[text for _, text in product_texts]] for m in match.finditer(text)})
         if not hits:
             continue
-        matching_products = [p for p in products if isinstance(p, dict) and match.search(normalize(str(p.get('nombre') or '') + ' ' + str(p.get('descripcion') or '')))]
+        matching_products = [p for p, text in product_texts if match.search(text)]
         quantities = [str(p['cantidad']) + (' ' + str(p['unidad_medida']) if p.get('unidad_medida') else '') for p in matching_products if p.get('cantidad') is not None]
         budget = detail.get('presupuesto') or {}
         amount = budget.get('monto_disponible')
@@ -340,9 +343,9 @@ def opportunities(store, match, normalize):
             amount = budget.get('presupuesto_estimado')
         currency = budget.get('moneda') or ''
         code = detail['codigo']
-        title_hit = bool(match.search(normalize(str(detail.get('nombre') or ''))))
-        description_hit = bool(match.search(normalize(str(detail.get('descripcion') or ''))))
-        items_hit = bool(match.search(normalize(product_text)))
+        title_hit = bool(match.search(title_text))
+        description_hit = bool(match.search(description_text))
+        items_hit = bool(matching_products)
         result.append({
             'id': code, 'organismo': (detail.get('institucion') or {}).get('organismo_comprador'),
             'titulo': detail.get('nombre'),
