@@ -205,3 +205,18 @@ Comparte la caché oficial y sus límites; no consulta nuevamente la API al abri
 El botón **Banderas vela** está en la portada, la vista compatible y el panel de Windows. Abre `/banderas-vela`, con descarga `/banderas-vela.xlsx` (`banderas_vela.xlsx`) y consulta `/api/banderas-vela`. Busca expresiones como **bandera vela**, **banderas velas**, **banderas tipo vela** y **bandera publicitaria tipo vela**, incluyendo nombres y descripciones de un mismo ítem. La palabra vela aislada no basta; se evitan así coincidencias genéricas de velas de cera. Tampoco se forman frases juntando títulos con descripciones o productos distintos.
 
 Comparte los datos oficiales ya guardados y sus límites de cobertura. No se añaden consultas ni avisos de escritorio por este filtro. El Excel indica dónde se encontró la expresión y si la carga está incompleta.
+
+## Búsqueda de difusión en Windows
+
+Actualiza el repositorio con `git pull` y abre **Iniciar buscador.bat** (o el acceso directo existente). En la ventana protegida pega tu ticket y pulsa **Iniciar buscador**. En el navegador elige **Difusión**. También está disponible en el panel de escritorio.
+
+- **Descargar Excel** exporta ID, institución, región informada, título, descripción, todos los ítems disponibles, cantidades por ítem, presupuesto, cierre, campos coincidentes y enlaces. Las filas que vencen en 24 horas se resaltan en amarillo. No suma unidades incompatibles.
+- **Actualizar búsqueda desde ChileCompra** despierta el único trabajador compartido; no crea sincronizaciones simultáneas. Respeta el bloqueo por HTTP 429 y las cuotas. Recargar la página no fuerza llamadas a la API.
+- **Activar / Desactivar repetición cada hora** controla el trabajador compartido de todas las búsquedas. Está activada inicialmente; la elección se conserva en SQLite. Un ciclo puede tardar más de una hora si hay muchos detalles. El programa debe permanecer abierto y tener conexión a Internet. La primera sincronización al iniciar se ejecuta incluso si la repetición está desactivada.
+- Coincide la palabra completa `difusión` o `difusion`, sin distinguir mayúsculas o tildes, en título **o** descripción general **o** ítems. El ID es único, se excluyen estados distintos de publicada y cierres pasados o ambiguos; orden ascendente por fecha. La vigencia es la de la última respuesta recibida, no una garantía de ausencia de cancelaciones posteriores.
+- **Límite pendiente: documentos públicos.** Este adaptador no enumera ni descarga adjuntos. No se ha verificado una API documentada que proporcione todos los documentos públicos de las solicitudes vigentes. La pantalla y el Excel indican **NO REVISADOS**; las coincidencias exclusivas en adjuntos pueden faltar. No se usan adjuntos privados, rutas inventadas ni evasión de restricciones.
+- El enlace directo al portal solo se incluye si la fuente lo entrega como URL HTTPS de Mercado Público sin credenciales ni parámetros. En caso contrario se informa que no está disponible y se entrega el recurso API oficial, que requiere ticket. Busca el ID en Mercado Público para ofertar; no se fabrica una URL de oferta.
+
+El ticket se solicita en https://www.chilecompra.cl/api/ mediante **Pide tu ticket**, ClaveÚnica y el formulario oficial. Nunca pegues el ticket al final del comando ni lo compartas en capturas. No se guarda en el Excel.
+
+Pruebas: `python -m unittest discover -s tests -q`. Incluyen coincidencias exclusivas de ítems, exclusión de cerradas/canceladas/detalles pendientes, fechas, orden, resaltado XLSX y respeto del bloqueo de cuota al actualizar manualmente. Las pruebas usan datos sintéticos; la aplicación no los muestra. No se ha probado la ventana nativa en un equipo Windows desde este entorno.

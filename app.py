@@ -21,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sync import Store, Synchronizer, connection_status, opportunities, timestamp
+from difusion import diffusion_data, diffusion_page, diffusion_excel
 from excel import export_xlsx
 from avisos import AlertCenter, desktop_alerts
 from presupuestos import budget_opportunities, page as budget_page, export as budget_excel
@@ -200,6 +201,7 @@ def ticket_window():
 class Handler(BaseHTTPRequestHandler):
     store = None
     worker = None
+    synchronizer = None
     alerts = None
     frame_origins = ["'self'"]
 
@@ -301,7 +303,7 @@ class Handler(BaseHTTPRequestHandler):
         rows += '<tr><th>Última sincronización completa</th><td>' + local_time(meta.get('ultima_sincronizacion')) + '</td></tr>'
         rows += '<tr><th>Próximo intento</th><td>' + ('Después de terminar este ciclo' if meta.get('estado') == 'sincronizando' else local_time(meta.get('reintentar_desde') or meta.get('proximo_intento'))) + '</td></tr>'
         purchases = self.result_rows(data['resultados'])
-        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>''' + escape(title) + ''' · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>''' + escape(title) + '''</h1><p>Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.</p><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="''' + escape(refresh_path) + '''">Actualizar ahora</a> · <a href="./monitor">Pendones</a> · <a class="download-button" href="./pines">Pin o pines</a> · <a class="download-button" href="./banderas-vela">Banderas vela</a> · <a href="./menores-100000">Compras menores a $100.000</a> · <a class="download-button" href="./segundo-llamado-500000">Segundo llamado · Menos de $500.000</a> · <a href="./">Vista moderna</a> · <a href="./avisos">Avisos de nuevas coincidencias</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
+        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>''' + escape(title) + ''' · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>''' + escape(title) + '''</h1><p>Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.</p><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="''' + escape(refresh_path) + '''">Actualizar ahora</a> · <a href="./difusion">Difusión</a> · <a href="./monitor">Pendones</a> · <a class="download-button" href="./pines">Pin o pines</a> · <a class="download-button" href="./banderas-vela">Banderas vela</a> · <a href="./menores-100000">Compras menores a $100.000</a> · <a class="download-button" href="./segundo-llamado-500000">Segundo llamado · Menos de $500.000</a> · <a href="./">Vista moderna</a> · <a href="./avisos">Avisos de nuevas coincidencias</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
         if matcher is PIN_TERMS:
             document += '<p>Palabras completas: pin o pines. La coincidencia es textual; revisa el contexto. Los avisos de pantalla actuales siguen correspondiendo a pendones.</p>'
         if matcher is SAIL_FLAG_TERMS:
@@ -335,6 +337,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urllib.parse.urlsplit(self.path).path
+        if path in ('/difusion', '/difusion.xlsx', '/api/difusion'):
+            if self.store is None:
+                return self.send(503, {'error': 'Almacenamiento no iniciado.'})
+            data = diffusion_data(self.store, normalize)
+            if path == '/api/difusion':
+                return self.send(200, data)
+            if path.endswith('.xlsx'):
+                return self.send(200, diffusion_excel(data), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'difusion.xlsx')
+            return self.send(200, diffusion_page(data), 'text/html; charset=utf-8')
         keyword_routes = {
             '/pines': (PIN_TERMS, 'Pin o pines', 'pin_o_pines.xlsx'),
             '/banderas-vela': (SAIL_FLAG_TERMS, 'Banderas vela', 'banderas_vela.xlsx'),
@@ -398,6 +409,22 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, body, mime)
 
     def do_POST(self):
+        if self.path in ('/difusion/actualizar', '/difusion/horaria'):
+            # Reject cross-origin form submissions, including requests from public sites.
+            origin = self.headers.get('Origin')
+            if origin and origin != 'http://' + self.headers.get('Host', ''):
+                return self.send(403, {'error': 'Origen no autorizado.'})
+            if self.synchronizer is None:
+                return self.send(503, {'error': 'Sincronizador no iniciado.'})
+            if self.path.endswith('/horaria'):
+                enabled = self.store.metadata().get('repetir_cada_hora', 'si') != 'si'
+                self.store.set_meta(repetir_cada_hora='si' if enabled else 'no')
+            self.synchronizer.request_update()
+            self.send_response(303)
+            self.send_header('Location', '/difusion')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if self.path != '/api/buscar':
             return self.send(404, {'error': 'No encontrado'})
         try:
@@ -465,7 +492,8 @@ if __name__ == '__main__':
     loader = lambda: opportunities(Handler.store, TERMS, normalize)
     Handler.alerts.observe(loader()['resultados'])
     Handler.alerts.start(loader)
-    Handler.worker = Synchronizer(Handler.store).start()
+    Handler.synchronizer = Synchronizer(Handler.store)
+    Handler.worker = Handler.synchronizer.start()
     print(f'Buscador de Pendones escuchando en {args.host}:{args.port}', flush=True)
     if args.open_browser:
         threading.Timer(0.5, webbrowser.open, args=(f'http://127.0.0.1:{args.port}/monitor',)).start()

@@ -184,6 +184,7 @@ class Synchronizer:
         self.store = store
         self.api = api or API(store)
         self.lock = threading.Lock()
+        self.wakeup = threading.Event()
 
     def fetch_pending(self, processed=0, limit=None):
         queue = self.store.pending()
@@ -263,12 +264,20 @@ class Synchronizer:
         finally:
             self.lock.release()
 
+    def request_update(self):
+        # Wake the single worker; run() retains quota/backoff and overlap guards.
+        self.wakeup.set()
+
     def start(self):
         def loop():
             while True:
+                self.wakeup.clear()
                 self.run()
                 self.store.set_meta(proximo_intento=iso(now() + timedelta(seconds=INTERVAL)))
-                time.sleep(INTERVAL)
+                if self.store.metadata().get('repetir_cada_hora', 'si') == 'si':
+                    self.wakeup.wait(INTERVAL)
+                else:
+                    self.wakeup.wait()
         thread = threading.Thread(target=loop, daemon=True, name='chilecompra-hourly')
         thread.start()
         return thread
