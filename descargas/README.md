@@ -27,3 +27,7 @@ Exportación estática y parcial del 25 de octubre de 2026 con 180 resultados de
 ### Base recibida el 27 de octubre de 2026 (actualización parcial)
 
 `base_compra_agil_ACTUALIZACION_PARCIAL_2026-10-27.xlsx`: exportación nueva tras recibir 200 páginas de cambios mediante la API Compra Ágil v2 (10.000 registros listados). Contiene 14.496 registros acumulados, 38 coincidencias de pendón/pendones en los campos disponibles y 2.787 líneas de ítems almacenadas. No es una lista de 14.496 oportunidades vigentes: incluye registros anteriores y estados distintos de publicada. Faltan más de 13.000 detalles por actualizar. Las coincidencias tampoco acreditan vigencia; verificar estado y fecha. La hoja `LEER cobertura` incluye el cursor real y los pendientes. El ticket no se exporta. Es una instantánea del avance, no una sincronización completada.
+
+### Archivo para revisar oportunidades vigentes
+
+`pendones_SOLO_VIGENTES_VERIFICADAS_2026-10-27.xlsx` se prepara con una nueva consulta individual de cada compra incluida: exige estado oficial `publicada`, fecha de cierre futura con zona interpretable y coincidencia pendón/pendones en título, descripción o ítems. Revisa la fecha de verificación de cada fila y la hoja de cobertura. Es parcial por los ítems todavía no descargados. **La base acumulada `base_compra_agil_ACTUALIZACION_PARCIAL_2026-10-27.xlsx` contiene también cerradas y NO debe usarse como una lista de oportunidades vigentes.**
