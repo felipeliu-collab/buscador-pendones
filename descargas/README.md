@@ -23,3 +23,7 @@ Exportación estática del 25 de octubre de 2026 con 252 resultados de la caché
 [Descargar Excel de segundo llamado bajo $500.000](https://github.com/felipeliu-collab/buscador-pendones/raw/refs/heads/main/descargas/compras_agiles_segundo_llamado_menos_500000_PARCIAL_2026-10-25.xlsx)
 
 Exportación estática y parcial del 25 de octubre de 2026 con 180 resultados del listado oficial guardado. Se exige estado publicado, cierre futuro interpretable, presupuesto total informado estrictamente menor a $500.000 CLP y `convocatoria.estado_convocatoria=2` explícito. Tener una fecha de segundo llamado no basta para incluirse. Hay 145 resultados con detalles pendientes. No se hicieron nuevas consultas a la API ni se incluyó el ticket. Confirma vigencia y requisitos en Mercado Público antes de ofertar.
+
+### Base recibida el 27 de octubre de 2026 (actualización parcial)
+
+`base_compra_agil_ACTUALIZACION_PARCIAL_2026-10-27.xlsx`: exportación nueva tras recibir 200 páginas de cambios mediante la API Compra Ágil v2 (10.000 registros listados). Contiene 14.496 registros acumulados, 38 coincidencias de pendón/pendones en los campos disponibles y 2.787 líneas de ítems almacenadas. No es una lista de 14.496 oportunidades vigentes: incluye registros anteriores y estados distintos de publicada. Faltan más de 13.000 detalles por actualizar. Las coincidencias tampoco acreditan vigencia; verificar estado y fecha. La hoja `LEER cobertura` incluye el cursor real y los pendientes. El ticket no se exporta. Es una instantánea del avance, no una sincronización completada.
