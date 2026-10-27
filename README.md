@@ -220,3 +220,7 @@ Actualiza el repositorio con `git pull` y abre **Iniciar buscador.bat** (o el ac
 El ticket se solicita en https://www.chilecompra.cl/api/ mediante **Pide tu ticket**, ClaveÚnica y el formulario oficial. Nunca pegues el ticket al final del comando ni lo compartas en capturas. No se guarda en el Excel.
 
 Pruebas: `python -m unittest discover -s tests -q`. Incluyen coincidencias exclusivas de ítems, exclusión de cerradas/canceladas/detalles pendientes, fechas, orden, resaltado XLSX y respeto del bloqueo de cuota al actualizar manualmente. Las pruebas usan datos sintéticos; la aplicación no los muestra. No se ha probado la ventana nativa en un equipo Windows desde este entorno.
+
+### Actualizar la base de pendones
+
+En la vista Pendones, **Actualizar base desde ChileCompra** solicita una sincronización real al trabajador compartido. **Actualizar ahora** solo recarga la pantalla. Si existe una pausa de cuota, se muestra `pausado_por_cuota` y la fecha del próximo intento; el botón no cancela el bloqueo ni recupera cuota. La repetición automática debe estar activa y el programa abierto para reanudar al vencer la pausa. No borres SQLite ni expongas el ticket para intentar resolver HTTP 429.

@@ -308,7 +308,7 @@ class Handler(BaseHTTPRequestHandler):
             document += '<p>Palabras completas: pin o pines. La coincidencia es textual; revisa el contexto. Los avisos de pantalla actuales siguen correspondiendo a pendones.</p>'
         if matcher is SAIL_FLAG_TERMS:
             document += '<p>Busca bandera vela, banderas velas, banderas tipo vela y variantes como bandera publicitaria tipo vela. No incluye velas de cera por la palabra vela aislada. Los avisos de pantalla actuales siguen correspondiendo a pendones.</p>'
-        document += rows + '</tbody></table><h2>Resultados disponibles</h2><p><a class="download-button" href="' + escape(download_path) + '">Descargar Excel</a></p><p>Exporta las coincidencias automáticas disponibles al descargar. Si la carga está incompleta, se indicará en la hoja Estado.</p><p>'
+        document += rows + '</tbody></table><form method="post" action="/monitor/actualizar"><button>Actualizar base desde ChileCompra</button></form><p>Este botón solicita la sincronización real. Si la API bloqueó por cuota, espera hasta Próximo intento. No borres la base ni cambies el ticket para saltarte la pausa.</p><h2>Resultados disponibles</h2><p><a class="download-button" href="' + escape(download_path) + '">Descargar Excel</a></p><p>Exporta las coincidencias automáticas disponibles al descargar. Si la carga está incompleta, se indicará en la hoja Estado.</p><p>'
         document += str(len(data['resultados'])) + ' coincidencias reales en la caché consultada. Durante la carga los resultados son parciales; cero coincidencias no acredita ausencia de oportunidades.</p><p>' + escape(data['cobertura']) + '</p>'
         document += '<p><strong>Coincidencias en ítems: ' + str(data['coincidencias_en_items']) + '. Con coincidencia en ítems y sin mención en el título: ' + str(data['coincidencias_items_sin_titulo']) + '.</strong> Detalles todavía pendientes de revisar: ' + str(data['pendientes']) + '.</p>'
         document += '<p>Compras sin ítems: ' + str(data['sin_items']) + '. Fechas ambiguas omitidas: ' + str(data['fecha_no_interpretable']) + '.</p>'
@@ -409,7 +409,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, body, mime)
 
     def do_POST(self):
-        if self.path in ('/difusion/actualizar', '/difusion/horaria'):
+        if self.path in ('/monitor/actualizar', '/difusion/actualizar', '/difusion/horaria'):
             # Reject cross-origin form submissions, including requests from public sites.
             origin = self.headers.get('Origin')
             if origin and origin != 'http://' + self.headers.get('Host', ''):
@@ -421,7 +421,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.store.set_meta(repetir_cada_hora='si' if enabled else 'no')
             self.synchronizer.request_update()
             self.send_response(303)
-            self.send_header('Location', '/difusion')
+            self.send_header('Location', '/monitor' if self.path.startswith('/monitor/') else '/difusion')
             self.send_header('Content-Length', '0')
             self.end_headers()
             return

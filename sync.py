@@ -209,6 +209,8 @@ class Synchronizer:
             meta = self.store.metadata()
             retry = timestamp(meta.get('reintentar_desde'))
             if retry and retry > now():
+                self.store.set_meta(estado='pausado_por_cuota', proximo_intento=iso(retry),
+                                    error='API en pausa por cuota. No se harán consultas antes de ' + iso(retry))
                 return
             if not os.environ.get('CHILECOMPRA_TICKET') and isinstance(self.api, API):
                 self.store.set_meta(conexion='sin_ticket', error_conexion='CHILECOMPRA_TICKET no está disponible en este proceso.')
@@ -266,6 +268,7 @@ class Synchronizer:
 
     def request_update(self):
         # Wake the single worker; run() retains quota/backoff and overlap guards.
+        self.store.set_meta(actualizacion_solicitada=iso(now()))
         self.wakeup.set()
 
     def start(self):
@@ -273,9 +276,11 @@ class Synchronizer:
             while True:
                 self.wakeup.clear()
                 self.run()
-                self.store.set_meta(proximo_intento=iso(now() + timedelta(seconds=INTERVAL)))
+                retry = timestamp(self.store.metadata().get('reintentar_desde'))
+                delay = max(0, (retry - now()).total_seconds()) if retry and retry > now() else INTERVAL
+                self.store.set_meta(proximo_intento=iso(now() + timedelta(seconds=delay)))
                 if self.store.metadata().get('repetir_cada_hora', 'si') == 'si':
-                    self.wakeup.wait(INTERVAL)
+                    self.wakeup.wait(delay)
                 else:
                     self.wakeup.wait()
         thread = threading.Thread(target=loop, daemon=True, name='chilecompra-hourly')

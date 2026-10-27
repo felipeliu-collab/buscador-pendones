@@ -61,3 +61,6 @@ class DiffusionTests(unittest.TestCase):
             with patch.object(worker.api, 'get') as get:
                 worker.run()
                 get.assert_not_called()
+            self.assertEqual(store.metadata()['estado'], 'pausado_por_cuota')
+            self.assertEqual(store.metadata()['proximo_intento'], store.metadata()['reintentar_desde'])
+            self.assertIn('actualizacion_solicitada', store.metadata())
