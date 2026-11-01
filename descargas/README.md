@@ -31,3 +31,7 @@ Exportación estática y parcial del 25 de octubre de 2026 con 180 resultados de
 ### Archivo para revisar oportunidades vigentes
 
 `pendones_SOLO_VIGENTES_VERIFICADAS_2026-10-27.xlsx` se prepara con una nueva consulta individual de cada compra incluida: exige estado oficial `publicada`, fecha de cierre futura con zona interpretable y coincidencia pendón/pendones en título, descripción o ítems. Revisa la fecha de verificación de cada fila y la hoja de cobertura. Es parcial por los ítems todavía no descargados. **La base acumulada `base_compra_agil_ACTUALIZACION_PARCIAL_2026-10-27.xlsx` contiene también cerradas y NO debe usarse como una lista de oportunidades vigentes.**
+
+### Menores a $100.000 — listado nuevo del 1 de noviembre de 2026
+
+Usar `compras_MENORES_100000_LISTADO_NUEVO_2026-11-01.xlsx` para esta revisión, en lugar de la selección anterior de 11 candidatas almacenadas. Se consultaron de nuevo las 130 páginas que informó la API oficial con `estado=publicada`, `tamano_pagina=50`, `ordenar_por=FechaPublicacion` y un límite de publicación fijo al inicio. Se recibieron 6.473 IDs únicos y se exportaron 273 que cumplieron estado publicada, presupuesto total oficial en CLP estrictamente menor a 100.000 y cierre futuro interpretable. Se eliminaron duplicados y se ordenó por cierre. No se reutilizaron las filas ni los ítems de octubre. Los campos corresponden al listado; no se descargaron detalles ni adjuntos. La hoja de cobertura registra horarios, páginas, exclusiones y límites por cambios durante la paginación. Confirmar vigencia antes de ofertar.
