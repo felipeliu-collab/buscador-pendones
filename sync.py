@@ -384,3 +384,16 @@ def opportunities(store, match, normalize):
         'fuente': BASE, 'intervalo_segundos': INTERVAL,
         'cobertura': 'Fuente: Dirección ChileCompra, API Compra Ágil v2. Se consultan todas las regiones sin filtrar palabras en el listado. Los resultados son compras publicadas con cierre futuro según los datos recibidos. La cobertura depende de la API y de completar listado y detalles; no incluye adjuntos ni ítems omitidos por la fuente. Los cambios pueden tardar hasta el siguiente ciclo y el tiempo de procesamiento.',
     }
+
+
+def item_only_opportunities(store, match, normalize):
+    """Require a product match and exclude title matches; never infer missing items."""
+    data = opportunities(store, match, normalize)
+    data['resultados'] = sorted(
+        (r for r in data['resultados'] if r['coincidencia_en_items'] and not r['coincidencia_en_titulo']),
+        key=lambda r: (timestamp(r['fecha_cierre']), r['id']))
+    data['coincidencias_en_items'] = len(data['resultados'])
+    data['coincidencias_items_sin_titulo'] = len(data['resultados'])
+    data['busqueda'] = 'Pendón o pendones en ítems y sin mención en el título. La descripción general puede coincidir también.'
+    data['cobertura'] += ' Esta vista exige coincidencia en un ítem y ninguna en el título. Cero resultados no demuestra ausencia si faltan detalles.'
+    return data

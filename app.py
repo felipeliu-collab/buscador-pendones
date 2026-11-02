@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from sync import Store, Synchronizer, connection_status, opportunities, timestamp
+from sync import Store, Synchronizer, connection_status, opportunities, timestamp, item_only_opportunities
 from difusion import diffusion_data, diffusion_page, diffusion_excel
 from excel import export_xlsx
 from avisos import AlertCenter, desktop_alerts
@@ -30,6 +30,7 @@ ROOT = Path(__file__).parent
 MAX_BYTES = 10 * 1024 * 1024
 HOSTS = {"www.mercadopublico.cl", "api.mercadopublico.cl", "datos-abiertos.chilecompra.cl", "www.chilecompra.cl"}
 TERMS = re.compile(r"\b(?:pendon(?:es)?|rollers?|mini[\s-]*pendon(?:es)?)\b")
+ITEM_PENDON_TERMS = re.compile(r"\bpendon(?:es)?\b")
 PIN_TERMS = re.compile(r"\b(?:pin|pines)\b")
 SAIL_FLAG_TERMS = re.compile(r"\bbanderas?(?:[\s/-]+(?:tipo|publicitarias?|modelo|formato|estilo|de|con|forma)){0,3}[\s/-]+velas?\b")
 
@@ -281,10 +282,10 @@ class Handler(BaseHTTPRequestHandler):
             body += '</tbody></table></div>'
         return (body + '</main></body></html>').encode()
 
-    def monitor_page(self, matcher=TERMS, title='Buscador de Pendones', refresh_path='./monitor', download_path='./descargar.xlsx'):
+    def monitor_page(self, matcher=TERMS, title='Buscador de Pendones', refresh_path='./monitor', download_path='./descargar.xlsx', items_only=False):
         state = connection_status(self.store, self.worker)
         meta = state['sincronizacion']
-        data = opportunities(self.store, matcher, normalize)
+        data = item_only_opportunities(self.store, matcher, normalize) if items_only else opportunities(self.store, matcher, normalize)
         def escape(value):
             return html.escape(str(value)) if value is not None else 'No informado'
         def local_time(value):
@@ -303,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
         rows += '<tr><th>Última sincronización completa</th><td>' + local_time(meta.get('ultima_sincronizacion')) + '</td></tr>'
         rows += '<tr><th>Próximo intento</th><td>' + ('Después de terminar este ciclo' if meta.get('estado') == 'sincronizando' else local_time(meta.get('reintentar_desde') or meta.get('proximo_intento'))) + '</td></tr>'
         purchases = self.result_rows(data['resultados'])
-        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>''' + escape(title) + ''' · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>''' + escape(title) + '''</h1><p>Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.</p><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="''' + escape(refresh_path) + '''">Actualizar ahora</a> · <a href="./difusion">Difusión</a> · <a href="./monitor">Pendones</a> · <a class="download-button" href="./pines">Pin o pines</a> · <a class="download-button" href="./banderas-vela">Banderas vela</a> · <a href="./menores-100000">Compras menores a $100.000</a> · <a class="download-button" href="./segundo-llamado-500000">Segundo llamado · Menos de $500.000</a> · <a href="./">Vista moderna</a> · <a href="./avisos">Avisos de nuevas coincidencias</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
+        document = '''<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>''' + escape(title) + ''' · Vista compatible</title><link rel="stylesheet" href="./style.css"></head><body><main><h1>''' + escape(title) + '''</h1><p>Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.</p><p>Vista compatible con Internet Explorer y navegadores sin JavaScript. Esta página se actualiza cada 30 segundos; el servidor consulta ChileCompra por separado.</p><p><a href="''' + escape(refresh_path) + '''">Actualizar ahora</a> · <a href="./pendones-en-items">Pendones solo en ítems</a> · <a href="./difusion">Difusión</a> · <a href="./monitor">Pendones</a> · <a class="download-button" href="./pines">Pin o pines</a> · <a class="download-button" href="./banderas-vela">Banderas vela</a> · <a href="./menores-100000">Compras menores a $100.000</a> · <a class="download-button" href="./segundo-llamado-500000">Segundo llamado · Menos de $500.000</a> · <a href="./">Vista moderna</a> · <a href="./avisos">Avisos de nuevas coincidencias</a></p><h2>Conexión y sincronización</h2><table><tbody>'''
         if matcher is PIN_TERMS:
             document += '<p>Palabras completas: pin o pines. La coincidencia es textual; revisa el contexto. Los avisos de pantalla actuales siguen correspondiendo a pendones.</p>'
         if matcher is SAIL_FLAG_TERMS:
@@ -313,6 +314,8 @@ class Handler(BaseHTTPRequestHandler):
         document += '<p><strong>Coincidencias en ítems: ' + str(data['coincidencias_en_items']) + '. Con coincidencia en ítems y sin mención en el título: ' + str(data['coincidencias_items_sin_titulo']) + '.</strong> Detalles todavía pendientes de revisar: ' + str(data['pendientes']) + '.</p>'
         document += '<p>Compras sin ítems: ' + str(data['sin_items']) + '. Fechas ambiguas omitidas: ' + str(data['fecha_no_interpretable']) + '.</p>'
         document += '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Organismo</th><th>Cantidad</th><th>Presupuesto</th><th>Cierre</th><th>Enlace</th><th>Ítems de la fuente</th></tr></thead><tbody>' + purchases + '</tbody></table></div></main></body></html>'
+        if items_only:
+            document = document.replace('Se incluyen coincidencias en el título O en la descripción O en los ítems. Cada resultado indica dónde se encontró el término.', 'Se exige pendón o pendones en el nombre o descripción de un ítem y ninguna mención en el título. La descripción general también puede coincidir. Los ítems pendientes no se consideran revisados.')
         return document.encode()
     def send(self, status, body, content_type='application/json; charset=utf-8', download_name=None):
         try:
@@ -346,6 +349,15 @@ class Handler(BaseHTTPRequestHandler):
             if path.endswith('.xlsx'):
                 return self.send(200, diffusion_excel(data), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'difusion.xlsx')
             return self.send(200, diffusion_page(data), 'text/html; charset=utf-8')
+        if path in ('/pendones-en-items', '/pendones-en-items.xlsx', '/api/pendones-en-items'):
+            if self.store is None:
+                return self.send(503, {'error': 'Almacenamiento no iniciado.'})
+            data = item_only_opportunities(self.store, ITEM_PENDON_TERMS, normalize)
+            if path.startswith('/api/'):
+                return self.send(200, data)
+            if path.endswith('.xlsx'):
+                return self.send(200, export_xlsx(data), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'pendones_solo_en_items.xlsx')
+            return self.send(200, self.monitor_page(matcher=ITEM_PENDON_TERMS, title='Pendones solo en ítems', refresh_path='./pendones-en-items', download_path='./pendones-en-items.xlsx', items_only=True), 'text/html; charset=utf-8')
         keyword_routes = {
             '/pines': (PIN_TERMS, 'Pin o pines', 'pin_o_pines.xlsx'),
             '/banderas-vela': (SAIL_FLAG_TERMS, 'Banderas vela', 'banderas_vela.xlsx'),

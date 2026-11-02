@@ -224,3 +224,9 @@ Pruebas: `python -m unittest discover -s tests -q`. Incluyen coincidencias exclu
 ### Actualizar la base de pendones
 
 En la vista Pendones, **Actualizar base desde ChileCompra** solicita una sincronización real al trabajador compartido. **Actualizar ahora** solo recarga la pantalla. Si existe una pausa de cuota, se muestra `pausado_por_cuota` y la fecha del próximo intento; el botón no cancela el bloqueo ni recupera cuota. La repetición automática debe estar activa y el programa abierto para reanudar al vencer la pausa. No borres SQLite ni expongas el ticket para intentar resolver HTTP 429.
+
+### Pendones solo en ítems (sin mención en título)
+
+El botón **Pendones solo en ítems** abre `/pendones-en-items`, con descarga `/pendones-en-items.xlsx` y datos `/api/pendones-en-items`. Exige la palabra completa pendón o pendones, sin distinguir tildes ni mayúsculas, en el nombre o descripción de un producto y ninguna coincidencia en el título de la compra. La descripción general puede coincidir también. Solo usa detalles descargados y no pendientes, estado publicada y cierre futuro interpretable. No incluye roller por sí solo en este filtro.
+
+Esta vista no descarga ítems adicionales ni evade la cuota de la API. Utiliza el trabajador compartido, cuya reanudación respeta la pausa y la configuración de repetición horaria. Los resultados pueden ser cero mientras falten detalles; no acredita ausencia de oportunidades. El botón **Actualizar base desde ChileCompra** solicita una consulta real respetando esa pausa. Para recibir el cambio en Windows, cerrar el programa, ejecutar `git pull` dentro del repositorio y abrir nuevamente **Iniciar buscador.bat**.
